@@ -95,3 +95,54 @@ fn example_writes_consistent_comfort_json() {
     };
     assert!(get("sun_hours", index_of(4.0, 0.5)) > get("sun_hours", index_of(7.5, 5.5)));
 }
+
+/// Run the example for two days with `comfort_grid` given `zones`; returns
+/// whether it succeeded and the `.err` text.
+fn run_with_zones(tag: &str, zones: &str) -> (bool, String) {
+    let root = workspace_root();
+    let yaml = std::fs::read_to_string(root.join("examples/comfort_perimeter_office.yaml"))
+        .unwrap()
+        .replacen("end_month: 12", "end_month: 1", 1)
+        .replacen("end_day: 31", "end_day: 2", 1)
+        .replacen(
+            "  pmv_limit: 0.5\n",
+            &format!("  pmv_limit: 0.5\n  zones: {zones}\n"),
+            1,
+        );
+    let dir = std::env::temp_dir().join(format!("openbse_comfort_{tag}_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let model = dir.join("office.yaml");
+    std::fs::write(&model, yaml).unwrap();
+    let out = Command::new(env!("CARGO_BIN_EXE_openbse"))
+        .arg(&model)
+        .arg("-w")
+        .arg(root.join("140_tests/weather/725650TYCST.epw"))
+        .output()
+        .unwrap();
+    let err = std::fs::read_to_string(dir.join("office.err")).unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
+    (out.status.success(), err)
+}
+
+/// A named zone that can't be gridded is a warning in the `.err` file.
+#[test]
+fn skipped_zone_is_reported() {
+    let (ok, err) = run_with_zones("partial", "[Perimeter Office, Nowhere]");
+    assert!(ok, "{err}");
+    assert!(
+        err.contains("** Warning ** Comfort grid: zone 'Nowhere' not gridded: zone not found"),
+        "{err}"
+    );
+}
+
+/// A grid that covers no zone stops the run with a severe error.
+#[test]
+fn grid_with_no_zone_is_severe() {
+    let (ok, err) = run_with_zones("none", "[Nowhere]");
+    assert!(!ok);
+    assert!(
+        err.contains("Comfort grid: no zone can be gridded: 'Nowhere'"),
+        "{err}"
+    );
+    assert!(err.contains("Errors: 1"), "{err}");
+}

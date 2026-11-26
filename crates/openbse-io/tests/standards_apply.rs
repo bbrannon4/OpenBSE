@@ -84,7 +84,7 @@ fn fills_lights_and_constructions_from_the_tables() {
     assert_eq!(v.error_count(), 0, "{}", v.to_err_file());
     // Window from Table 5.5-5, fixed, nonresidential.
     let w = &m.window_constructions[0];
-    assert!(close(w.u_factor, 0.32 * U_IP) && (w.shgc - 0.38).abs() < 1e-12);
+    assert!(close(w.u_factor.unwrap(), 0.32 * U_IP) && (w.shgc.unwrap() - 0.38).abs() < 1e-12);
     // Slab from the F-factor row.
     assert!(close(
         m.f_factor_constructions[0].f_factor,
@@ -158,7 +158,7 @@ fn appendix_g_uses_baseline_tables_and_per_method_space_types() {
     assert!(close(m.lights[0].watts_per_area.unwrap(), 1.10 * LPD_IP));
     // 3 m² of window in 30 m² of wall: 10% WWR, the first G3.4-5 band.
     let w = &m.window_constructions[0];
-    assert!(close(w.u_factor, 0.57 * U_IP), "{}", w.u_factor);
+    assert!(close(w.u_factor.unwrap(), 0.57 * U_IP), "{:?}", w.u_factor);
     assert!(r.applied.iter().any(|a| a.citation.table == "G3.4-5"));
     assert!(r.applied.iter().any(|a| a.citation.table == "G3.7-1"));
 }

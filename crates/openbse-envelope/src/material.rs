@@ -429,227 +429,343 @@ impl ShadingControl {
     }
 }
 
-/// Simplified window construction (U-factor + SHGC based).
+/// A glass layer of a window, with spectral-average optical properties at
+/// normal incidence, after EnergyPlus `WindowMaterial:Glazing`
+/// (`SpectralAverage`). "Front" faces the outdoors.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GlazingMaterial {
+    pub name: String,
+    /// Thickness [m]
+    pub thickness: f64,
+    /// Conductivity [W/(m·K)] (default 0.9, as EnergyPlus)
+    #[serde(default = "default_glass_conductivity")]
+    pub conductivity: f64,
+    /// Solar transmittance at normal incidence [0-1]
+    pub solar_transmittance: f64,
+    /// Front (outdoor-side) solar reflectance at normal incidence [0-1]
+    pub solar_reflectance_front: f64,
+    /// Back (room-side) solar reflectance at normal incidence [0-1]
+    pub solar_reflectance_back: f64,
+    /// Visible transmittance at normal incidence [0-1] (default: the solar
+    /// value). Visible properties only set the reported visible transmittance.
+    #[serde(default)]
+    pub visible_transmittance: Option<f64>,
+    /// Front visible reflectance [0-1] (default: the front solar value)
+    #[serde(default)]
+    pub visible_reflectance_front: Option<f64>,
+    /// Back visible reflectance [0-1] (default: the back solar value)
+    #[serde(default)]
+    pub visible_reflectance_back: Option<f64>,
+    /// Long-wave transmittance (default 0). Glass is modelled opaque to
+    /// long-wave radiation, so any other value is an error.
+    #[serde(default)]
+    pub infrared_transmittance: f64,
+    /// Front long-wave hemispherical emissivity (default 0.84)
+    #[serde(default = "default_glass_emissivity")]
+    pub emissivity_front: f64,
+    /// Back long-wave hemispherical emissivity (default 0.84)
+    #[serde(default = "default_glass_emissivity")]
+    pub emissivity_back: f64,
+    /// Factor on the solar and visible transmittance for dirt, applied when
+    /// the layer is a window's outermost (default 1, clean)
+    #[serde(default = "default_dirt_factor")]
+    pub dirt_correction_factor: f64,
+}
+
+fn default_glass_conductivity() -> f64 {
+    0.9
+}
+fn default_glass_emissivity() -> f64 {
+    0.84
+}
+fn default_dirt_factor() -> f64 {
+    1.0
+}
+
+impl GlazingMaterial {
+    /// The glazing layer for the window model.
+    pub fn layer(&self) -> crate::glazing::GlassLayer {
+        crate::glazing::GlassLayer {
+            thickness: self.thickness,
+            conductivity: self.conductivity,
+            solar_transmittance: self.solar_transmittance,
+            solar_reflectance_front: self.solar_reflectance_front,
+            solar_reflectance_back: self.solar_reflectance_back,
+            visible_transmittance: self
+                .visible_transmittance
+                .unwrap_or(self.solar_transmittance),
+            visible_reflectance_front: self
+                .visible_reflectance_front
+                .unwrap_or(self.solar_reflectance_front),
+            visible_reflectance_back: self
+                .visible_reflectance_back
+                .unwrap_or(self.solar_reflectance_back),
+            emissivity_front: self.emissivity_front,
+            emissivity_back: self.emissivity_back,
+            dirt_factor: self.dirt_correction_factor,
+        }
+    }
+
+    /// Inputs outside their physical range.
+    pub fn problems(&self) -> Vec<String> {
+        let mut p = Vec::new();
+        if self.thickness <= 0.0 {
+            p.push("thickness must be positive".to_string());
+        }
+        if self.conductivity <= 0.0 {
+            p.push("conductivity must be positive".to_string());
+        }
+        let unit = |name: &str, v: f64, p: &mut Vec<String>| {
+            if !(0.0..=1.0).contains(&v) {
+                p.push(format!("{name} {v} must lie in [0, 1]"));
+            }
+        };
+        unit("solar_transmittance", self.solar_transmittance, &mut p);
+        unit(
+            "solar_reflectance_front",
+            self.solar_reflectance_front,
+            &mut p,
+        );
+        unit(
+            "solar_reflectance_back",
+            self.solar_reflectance_back,
+            &mut p,
+        );
+        let vis = self.layer();
+        unit("visible_transmittance", vis.visible_transmittance, &mut p);
+        unit(
+            "visible_reflectance_front",
+            vis.visible_reflectance_front,
+            &mut p,
+        );
+        unit(
+            "visible_reflectance_back",
+            vis.visible_reflectance_back,
+            &mut p,
+        );
+        let mut sums = vec![(
+            "solar",
+            self.solar_transmittance,
+            self.solar_reflectance_front,
+            self.solar_reflectance_back,
+        )];
+        let visible_given = self.visible_transmittance.is_some()
+            || self.visible_reflectance_front.is_some()
+            || self.visible_reflectance_back.is_some();
+        if visible_given {
+            sums.push((
+                "visible",
+                vis.visible_transmittance,
+                vis.visible_reflectance_front,
+                vis.visible_reflectance_back,
+            ));
+        }
+        for (what, t, rf, rb) in sums {
+            if t + rf.max(rb) > 1.0 {
+                p.push(format!(
+                    "{what} transmittance plus reflectance exceeds 1 on a face"
+                ));
+            }
+        }
+        if !(self.emissivity_front > 0.0 && self.emissivity_front <= 1.0) {
+            p.push("emissivity_front must lie in (0, 1]".to_string());
+        }
+        if !(self.emissivity_back > 0.0 && self.emissivity_back <= 1.0) {
+            p.push("emissivity_back must lie in (0, 1]".to_string());
+        }
+        if self.infrared_transmittance != 0.0 {
+            p.push(
+                "infrared_transmittance must be 0: glass layers are modelled opaque to \
+                 long-wave radiation"
+                    .to_string(),
+            );
+        }
+        if !(self.dirt_correction_factor > 0.0 && self.dirt_correction_factor <= 1.0) {
+            p.push("dirt_correction_factor must lie in (0, 1]".to_string());
+        }
+        p
+    }
+}
+
+/// A fill gas of a window gap.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GapGas {
+    Air,
+    Argon,
+    Krypton,
+    Xenon,
+}
+
+impl GapGas {
+    pub fn gas(self) -> crate::glazing::Gas {
+        use crate::glazing::{AIR, ARGON, KRYPTON, XENON};
+        match self {
+            GapGas::Air => AIR,
+            GapGas::Argon => ARGON,
+            GapGas::Krypton => KRYPTON,
+            GapGas::Xenon => XENON,
+        }
+    }
+}
+
+/// One gas of a gap's mixture, by mole fraction.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GasFraction {
+    pub gas: GapGas,
+    pub fraction: f64,
+}
+
+/// A layer of a window construction: a glass layer (`glazing`, naming a
+/// glazing material) or a gas gap (`gas`, or `gas_mixture`, with `width`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WindowLayer {
+    #[serde(default)]
+    pub glazing: Option<String>,
+    #[serde(default)]
+    pub gas: Option<GapGas>,
+    #[serde(default)]
+    pub gas_mixture: Option<Vec<GasFraction>>,
+    /// Gap width [m]
+    #[serde(default)]
+    pub width: Option<f64>,
+}
+
+/// Window construction.
+///
+/// Either a simple glazing system, described by its NFRC U-factor and SHGC
+/// and modelled as EnergyPlus's equivalent single glass layer, or a
+/// layer-by-layer glazing system: `layers`, outside to inside, alternating
+/// glass layers and gas gaps, with one to four glass layers. A layered
+/// construction's U-factor and SHGC follow from its layers.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct WindowConstruction {
     pub name: String,
-    /// Overall U-factor including film coefficients [W/(m²·K)]
-    pub u_factor: f64,
-    /// Solar Heat Gain Coefficient at normal incidence [0-1]
-    pub shgc: f64,
-    /// Per-pane solar transmittance at normal incidence [0-1].
-    ///
-    /// When provided along with `pane_solar_reflectance`, enables accurate
-    /// angular SHGC(θ)/SHGC(0°) modifier computation using Fresnel optics
-    /// with the correct glass extinction coefficient and inward-absorbed
-    /// fraction (N_i). This properly accounts for the absorbed-inward
-    /// solar component that keeps SHGC higher at oblique angles than
-    /// transmittance alone.
-    ///
-    /// For ASHRAE 140 clear double-pane: τ_pane = 0.834 per 3mm pane.
-    /// Matches EnergyPlus `WindowMaterial:Glazing` detailed model.
+    /// NFRC U-factor including film coefficients [W/(m²·K)] (simple glazing)
     #[serde(default)]
+    pub u_factor: Option<f64>,
+    /// Solar heat gain coefficient at normal incidence [0-1] (simple glazing)
+    #[serde(default)]
+    pub shgc: Option<f64>,
+    /// Visible transmittance at normal incidence [0-1] (simple glazing,
+    /// optional; default the solar transmittance)
+    #[serde(default)]
+    pub visible_transmittance: Option<f64>,
+    /// Glass layers and gas gaps, outside to inside (layered glazing)
+    #[serde(default)]
+    pub layers: Vec<WindowLayer>,
+    /// Retired pane fields: describe the panes as `layers` instead.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pane_solar_transmittance: Option<f64>,
-    /// Per-pane front solar reflectance at normal incidence [0-1].
-    ///
-    /// Used with `pane_solar_transmittance` to derive the system absorptance
-    /// and inward-flowing fraction N_i = (SHGC − τ_system) / α_system.
-    ///
-    /// For ASHRAE 140 clear double-pane: ρ_pane = 0.075 per 3mm pane.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pane_solar_reflectance: Option<f64>,
-
-    // ── First-principles window thermal model ──────────────────────────
-    //
-    // When these properties are provided, the engine computes the glass
-    // conductance (u_glass) from ISO 15099 sealed-gas-gap model at each
-    // timestep instead of using NFRC film stripping. This matches the
-    // EnergyPlus layer-by-layer approach and accounts for temperature-
-    // dependent gap convection and radiation.
-    //
-    // If these fields are omitted, u_glass falls back to the NFRC film-
-    // stripped value from u_factor (existing behavior).
-    /// Number of glass panes (1=single, 2=double, 3=triple).
-    /// Required for first-principles thermal model.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub num_panes: Option<u32>,
-    /// Gas gap width between panes [m].
-    /// For ASHRAE 140 double-pane: 0.012 m (12 mm).
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub gap_width: Option<f64>,
-    /// Pane thermal conductivity [W/(m·K)].
-    /// For standard glass: 1.0 W/(m·K).
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pane_conductivity: Option<f64>,
-    /// Pane thickness [m].
-    /// For ASHRAE 140: 0.003175 m (3.175 mm).
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pane_thickness: Option<f64>,
-    /// Glass LW emissivity for interior radiation and gap radiation.
-    /// Default 0.84 for uncoated clear glass. For low-e coatings, the
-    /// coated surface facing the gap may have ε ≈ 0.04–0.15.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub glass_emissivity: Option<f64>,
     /// Dynamic interior shading control (#104). When present, blind state is
     /// evaluated each timestep and the effective SHGC/U are updated accordingly.
     #[serde(default)]
     pub shading_control: Option<ShadingControl>,
+    /// The glass layers and gaps of `layers`, resolved against the model's
+    /// glazing materials (`resolve_layers`).
+    #[serde(skip)]
+    pub resolved_layers: Option<(Vec<crate::glazing::GlassLayer>, Vec<crate::glazing::Gap>)>,
 }
 
 impl WindowConstruction {
-    /// Compute the fraction of SHGC that is direct solar transmittance (τ_sol/SHGC).
-    ///
-    /// For a glazing system, SHGC = τ_sol + N_in × α_sol, where:
-    ///   τ_sol = direct solar transmittance through the glass
-    ///   α_sol = solar absorptance of the glass
-    ///   N_in  = inward-flowing fraction of absorbed solar
-    ///
-    /// EnergyPlus models this split internally for SimpleGlazingSystem windows.
-    /// This method estimates the ratio τ_sol/SHGC from the SHGC and U-factor
-    /// using the E+ SimpleGlazingSystem correlations for initial τ and ρ, then
-    /// computing N_in from the center-of-glass absorption model.
-    ///
-    /// When `pane_solar_transmittance` is provided, derives the ratio directly
-    /// from the known system transmittance.
-    pub fn solar_transmittance_ratio(&self) -> f64 {
-        // If per-pane transmittance is known, derive system τ_sol directly.
-        //
-        // pane_solar_transmittance (τ_pane) and pane_solar_reflectance (ρ_pane)
-        // are the OVERALL pane properties at normal incidence — they already
-        // include surface reflections. Do NOT apply additional surface
-        // reflection corrections (the old code had this bug, computing
-        // τ_single = τ_pane×(1-ρ)²/(1-ρ²τ²) which treats τ_pane as internal
-        // transmittance and double-counts surface reflections).
-        //
-        // For two identical panes with inter-pane reflections:
-        //   τ_system = τ_pane² / (1 - ρ_pane²)
-        //
-        // For single-pane: τ_system = τ_pane (already the overall value)
-        //
-        // ratio = τ_system / SHGC
-        if let (Some(tau_pane), Some(rho_pane)) =
-            (self.pane_solar_transmittance, self.pane_solar_reflectance)
-        {
-            let num_panes = self.num_panes.unwrap_or(2);
-            let tau_system = if num_panes == 1 {
-                tau_pane
-            } else {
-                // Double-pane: τ_pane already includes surface reflections
-                // Inter-pane bouncing: τ_sys = τ₁·τ₂ / (1 - ρ₁_back·ρ₂_front)
-                // For identical panes: τ_sys = τ_pane² / (1 - ρ_pane²)
-                tau_pane.powi(2) / (1.0 - rho_pane.powi(2)).max(0.001)
-            };
-            return if self.shgc > 0.0 {
-                (tau_system / self.shgc).clamp(0.0, 1.0)
-            } else {
-                1.0
-            };
+    /// A simple glazing construction.
+    pub fn simple(name: &str, u_factor: f64, shgc: f64) -> Self {
+        Self {
+            name: name.to_string(),
+            u_factor: Some(u_factor),
+            shgc: Some(shgc),
+            visible_transmittance: None,
+            layers: Vec::new(),
+            pane_solar_transmittance: None,
+            pane_solar_reflectance: None,
+            num_panes: None,
+            gap_width: None,
+            pane_conductivity: None,
+            pane_thickness: None,
+            glass_emissivity: None,
+            shading_control: None,
+            resolved_layers: None,
         }
-
-        // Otherwise, estimate from SHGC and U-factor using E+ correlations.
-        compute_solar_transmittance_ratio(self.shgc, self.u_factor)
-    }
-}
-
-/// Estimate τ_sol/SHGC ratio from SHGC and U-factor.
-///
-/// Uses EnergyPlus SimpleGlazingSystem U-factor-dependent correlations to
-/// compute the solar transmittance Tsol directly from SHGC. The ratio
-/// τ_sol/SHGC determines the split between directly transmitted solar
-/// (distributed to zone surfaces) and absorbed-inward solar (heats glass).
-///
-/// Three U-factor regimes match E+ exactly:
-/// - U > 4.5: high-U (single-pane) correlations
-/// - U < 3.4: low-U (double/triple-pane) correlations
-/// - 3.4 ≤ U ≤ 4.5: linear interpolation of both
-///
-/// Reference: Arasteh, Kohler, & Griffith (2009), "Modeling Windows in
-/// Energy-Plus with Simple Performance Indices", LBNL-2804E.
-pub fn compute_solar_transmittance_ratio(shgc: f64, u_factor: f64) -> f64 {
-    if shgc <= 0.0 || u_factor <= 0.0 {
-        return 1.0;
     }
 
-    let tsol = sgs_tsol_from_shgc(shgc, u_factor);
-    (tsol / shgc).clamp(0.0, 1.0)
-}
-
-/// Compute solar transmittance Tsol from SHGC and U-factor using the
-/// EnergyPlus SimpleGlazingSystem correlations (LBNL-2804E).
-///
-/// Returns the normal-incidence solar transmittance of the equivalent layer.
-pub fn sgs_tsol_from_shgc(shgc: f64, u_factor: f64) -> f64 {
-    if shgc <= 0.0 {
-        return 0.0;
+    /// Whether any retired pane field is given.
+    pub fn has_retired_pane_fields(&self) -> bool {
+        self.pane_solar_transmittance.is_some()
+            || self.pane_solar_reflectance.is_some()
+            || self.num_panes.is_some()
+            || self.gap_width.is_some()
+            || self.pane_conductivity.is_some()
+            || self.pane_thickness.is_some()
+            || self.glass_emissivity.is_some()
     }
 
-    // High-U correlations (U > 4.5, single-pane regime)
-    let tsol_high = if shgc < 0.7206 {
-        0.939998 * shgc.powi(2) + 0.20332 * shgc
-    } else {
-        (1.30415 * shgc - 0.30515).max(0.0)
-    };
+    /// Resolves `layers` against the glazing materials. Unknown names and
+    /// malformed layers leave the construction unresolved; validation
+    /// reports them.
+    pub fn resolve_layers(&mut self, materials: &HashMap<String, GlazingMaterial>) {
+        use crate::glazing::{Gap, GasFill};
+        self.resolved_layers = None;
+        if self.layers.is_empty() {
+            return;
+        }
+        let mut glass = Vec::new();
+        let mut gaps = Vec::new();
+        for (i, l) in self.layers.iter().enumerate() {
+            if i % 2 == 0 {
+                match l.glazing.as_ref().and_then(|n| materials.get(n)) {
+                    Some(m) => glass.push(m.layer()),
+                    None => return,
+                }
+            } else {
+                let fill = match (&l.gas, &l.gas_mixture) {
+                    (Some(g), None) => GasFill::single(g.gas()),
+                    (None, Some(mix)) if !mix.is_empty() => GasFill {
+                        parts: mix.iter().map(|f| (f.gas.gas(), f.fraction)).collect(),
+                    },
+                    _ => return,
+                };
+                match l.width {
+                    Some(w) if w > 0.0 => gaps.push(Gap { width: w, fill }),
+                    _ => return,
+                }
+            }
+        }
+        if glass.len() != gaps.len() + 1 || glass.len() > crate::glazing::MAX_LAYERS {
+            return;
+        }
+        self.resolved_layers = Some((glass, gaps));
+    }
 
-    // Low-U correlations (U < 3.4, double/triple-pane regime)
-    let tsol_low = if shgc <= 0.15 {
-        0.41040 * shgc
-    } else {
-        0.085775 * shgc.powi(2) + 0.963954 * shgc - 0.084958
-    };
-
-    // Select or interpolate based on U-factor (E+ boundary values)
-    let tsol = if u_factor > 4.5 {
-        tsol_high
-    } else if u_factor < 3.4 {
-        tsol_low
-    } else {
-        tsol_low + (u_factor - 3.4) / (4.5 - 3.4) * (tsol_high - tsol_low)
-    };
-
-    tsol.max(0.0)
-}
-
-/// Resistance of the equivalent glazing layer of a simple glazing system
-/// [m²·K/W]: the U-factor less E+'s winter film correlations
-/// (`SetupSimpleWindowGlazingSystem`, step 1; Arasteh et al. 2009).
-pub fn sgs_layer_resistance(u_factor: f64) -> f64 {
-    let r_in = if u_factor < 5.85 {
-        1.0 / (0.359073 * u_factor.ln() + 6.949915)
-    } else {
-        1.0 / (1.788041 * u_factor - 2.886625)
-    };
-    let r_out = 1.0 / (0.025342 * u_factor + 29.163853);
-    (1.0 / u_factor - r_in - r_out).max(0.001)
-}
-
-/// Fraction of a simple glazing system's absorbed solar that flows inward,
-/// from E+'s film correlations for solar conditions, which depend on SHGC − τ
-/// (`SetupSimpleWindowGlazingSystem`, step 5). The interpolation between the U
-/// regimes is transcribed as E+ writes it, with the same sign.
-pub fn sgs_inflow_fraction(u_factor: f64, shgc: f64, tsol: f64) -> f64 {
-    let d = shgc - tsol;
-    let low = (
-        1.0 / (199.8208128 * d.powi(3) - 90.639733 * d.powi(2) + 19.737055 * d + 6.766575),
-        1.0 / (5.763355 * d + 20.541528),
-    );
-    let high = (
-        1.0 / (29.436546 * d.powi(3) - 21.943415 * d.powi(2) + 9.945872 * d + 7.426151),
-        1.0 / (2.225824 * d + 20.577080),
-    );
-    let (r_is, r_os) = if u_factor > 4.5 {
-        high
-    } else if u_factor < 3.4 {
-        low
-    } else {
-        let frac = (u_factor - 3.4) / (4.5 - 3.4);
-        (
-            frac * (low.0 - high.0) + low.0,
-            frac * (low.1 - high.1) + low.1,
-        )
-    };
-    let r_l = sgs_layer_resistance(u_factor);
-    (r_os + 0.5 * r_l) / (r_os + r_l + r_is)
+    /// The glazing system: the resolved layers, or the simple glazing
+    /// equivalent layer. Validation rejects a construction that is neither
+    /// before a model runs.
+    pub fn glazing(&self) -> crate::glazing::Glazing {
+        use crate::glazing::Glazing;
+        match &self.resolved_layers {
+            Some((glass, gaps)) => Glazing::layered(glass.clone(), gaps.clone()),
+            None => Glazing::simple(
+                self.u_factor.unwrap_or(3.0),
+                self.shgc.unwrap_or(0.7),
+                self.visible_transmittance,
+            ),
+        }
+    }
 }
 
 /// Simplified opaque construction defined by overall properties.
@@ -785,26 +901,22 @@ mod tests {
     /// Hand evaluation of E+ `SetupSimpleWindowGlazingSystem` for U = 2, SHGC = 0.4 (#213).
     #[test]
     fn simple_glazing_follows_the_e_plus_correlations() {
+        use crate::glazing::{simple_layer_resistance, simple_solar_transmittance};
         let (u, shgc) = (2.0f64, 0.4f64);
         let tsol = 0.085775 * shgc * shgc + 0.963954 * shgc - 0.084958;
-        assert!((sgs_tsol_from_shgc(shgc, u) - tsol).abs() < 1e-12);
+        assert!((simple_solar_transmittance(u, shgc) - tsol).abs() < 1e-12);
         let r_i = 1.0 / (0.359073 * u.ln() + 6.949915);
         let r_o = 1.0 / (0.025342 * u + 29.163853);
         let r_l = 1.0 / u - r_i - r_o;
-        assert!((sgs_layer_resistance(u) - r_l).abs() < 1e-12);
-        let d = shgc - tsol;
-        let r_is = 1.0 / (199.8208128 * d.powi(3) - 90.639733 * d * d + 19.737055 * d + 6.766575);
-        let r_os = 1.0 / (5.763355 * d + 20.541528);
-        let n = (r_os + 0.5 * r_l) / (r_os + r_l + r_is);
-        assert!((sgs_inflow_fraction(u, shgc, tsol) - n).abs() < 1e-12);
+        assert!((simple_layer_resistance(u) - r_l).abs() < 1e-12);
         // The regimes switch at 3.4 and 4.5, not 3.4068 and 4.5424.
-        assert_eq!(sgs_tsol_from_shgc(0.5, 3.401), {
+        assert_eq!(simple_solar_transmittance(3.401, 0.5), {
             let lo = 0.085775 * 0.25 + 0.963954 * 0.5 - 0.084958;
             let hi = 0.939998 * 0.25 + 0.20332 * 0.5;
-            lo + 0.001 / 1.1 * (hi - lo)
+            (3.401 - 3.4) / 1.1 * (hi - lo) + lo
         });
         let hi = 0.939998 * 0.25 + 0.20332 * 0.5;
-        assert_eq!(sgs_tsol_from_shgc(0.5, 4.51), hi);
+        assert_eq!(simple_solar_transmittance(4.51, 0.5), hi);
     }
 
     #[test]

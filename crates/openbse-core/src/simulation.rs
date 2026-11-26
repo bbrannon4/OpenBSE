@@ -62,9 +62,10 @@ pub struct ControlSignals {
     pub zone_supply_temps: HashMap<String, f64>,
     /// Zone air flows: zone_name -> mass_flow [kg/s]
     pub zone_air_flows: HashMap<String, f64>,
-    /// SAT setpoint from the VAV signal builder [°C] (0 when unset); the
-    /// mixed-air target that heat recovery is throttled to.
-    pub sat_setpoint: f64,
+    /// Mixed-air setpoint from the VAV signal builder [°C]: the supply
+    /// setpoint less the supply fan's rise at this flow, which the economizer
+    /// mixes to and heat recovery is throttled to.
+    pub mixed_air_setpoint: Option<f64>,
     /// Whether the economizer is admitting more than minimum outdoor air;
     /// heat recovery is locked out then (E+ `Economizer Lockout = Yes`).
     pub economizer_active: bool,

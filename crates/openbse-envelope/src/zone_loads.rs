@@ -41,17 +41,15 @@ pub struct PeopleInput {
     /// Alternative: floor area per person [m²/person] (zone floor area / this = count)
     #[serde(default)]
     pub area_per_person: Option<f64>,
-    /// Activity level [W/person] — total metabolic heat output (default 120).
-    /// This is split into sensible and latent components using `sensible_fraction`.
-    #[serde(default = "default_activity")]
+    /// Activity level [W/person]: total heat per person, sensible plus latent.
+    /// Required, as E+'s activity level schedule is.
     pub activity_level: f64,
-    /// Sensible fraction of metabolic heat [0-1] (default 0.6).
-    /// Sensible heat = activity_level × sensible_fraction.
-    /// Latent heat  = activity_level × (1 - sensible_fraction).
-    /// Typical values by activity: 0.62 seated/quiet, 0.58 moderate office,
-    /// 0.50 walking, 0.38 heavy exercise (per ASHRAE Fundamentals Ch.18).
-    #[serde(default = "default_sensible_fraction")]
-    pub sensible_fraction: f64,
+    /// Sensible fraction of the activity level [0-1]. When absent (the
+    /// default), the sensible heat per person follows the activity level and
+    /// the zone air temperature as E+ autocalculates it; the latent heat is
+    /// the remainder.
+    #[serde(default)]
+    pub sensible_fraction: Option<f64>,
     /// Fraction of gain that is radiant [0-1] (default 0.3)
     #[serde(default = "default_people_radiant")]
     pub radiant_fraction: f64,
@@ -59,21 +57,15 @@ pub struct PeopleInput {
     #[serde(default)]
     pub schedule: Option<String>,
     /// Alternative: explicit sensible gain [W/person].
-    /// When set, overrides `activity_level × sensible_fraction`.
+    /// When set, overrides the sensible share of `activity_level`.
     #[serde(default)]
     pub sensible_gain_per_person: Option<f64>,
     /// Alternative: explicit latent gain [W/person].
-    /// When set, overrides `activity_level × (1 - sensible_fraction)`.
+    /// When set, overrides the latent remainder of `activity_level`.
     #[serde(default)]
     pub latent_gain_per_person: Option<f64>,
 }
 
-fn default_activity() -> f64 {
-    120.0
-}
-fn default_sensible_fraction() -> f64 {
-    0.6
-}
 fn default_people_radiant() -> f64 {
     0.3
 }
@@ -126,6 +118,17 @@ pub struct EquipmentGainInput {
     /// Alternative: power density [W/m²]
     #[serde(default)]
     pub watts_per_area: Option<f64>,
+    /// Alternative: power per person [W/person], times the zone's design
+    /// number of people (E+ `Watts/Person`)
+    #[serde(default)]
+    pub watts_per_person: Option<f64>,
+    /// Fuel the equipment draws (default electricity): `natural_gas` (E+
+    /// `GasEquipment`), `district_heating_water` (`HotWaterEquipment`),
+    /// `district_heating_steam` (`SteamEquipment`), any other fuel of E+
+    /// `OtherEquipment`, or `none` (unmetered; the only fuel whose power may be
+    /// negative, a heat sink).
+    #[serde(default)]
+    pub fuel: crate::internal_gains::EquipmentFuel,
     /// Fraction radiant [0-1] (default 0.3)
     #[serde(default = "default_equip_radiant")]
     pub radiant_fraction: f64,
@@ -147,6 +150,47 @@ pub struct EquipmentGainInput {
 
 fn default_equip_radiant() -> f64 {
     0.3
+}
+
+/// Top-level baseboard heat whose capacity follows the outdoor temperature
+/// (E+ `ZoneBaseboard:OutdoorTemperatureControlled`), assignable to zones or
+/// zone groups. It is an electric internal gain metered as interior
+/// equipment, not HVAC: no thermostat controls it.
+///
+/// ```yaml
+/// outdoor_controlled_baseboards:
+///   - name: Lobby Baseboard
+///     zones: [Lobby]
+///     capacity_at_low_temperature: 1500   # W at and below -10 °C
+///     low_temperature: -10
+///     capacity_at_high_temperature: 500   # W just below 15 °C
+///     high_temperature: 15                # off at and above 15 °C
+///     radiant_fraction: 0.4
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OutdoorControlledBaseboardInput {
+    pub name: String,
+    /// Zone or zone-group names this applies to (each zone gets the full
+    /// capacity)
+    pub zones: Vec<String>,
+    /// Capacity at and below `low_temperature` [W]
+    pub capacity_at_low_temperature: f64,
+    /// Outdoor temperature of the low-temperature capacity [°C]
+    pub low_temperature: f64,
+    /// Capacity just below `high_temperature` [W]
+    pub capacity_at_high_temperature: f64,
+    /// Outdoor temperature at and above which the baseboard is off [°C]
+    pub high_temperature: f64,
+    /// Fraction radiant [0-1] (default 0, as E+); the rest is convective
+    #[serde(default)]
+    pub radiant_fraction: f64,
+    /// Schedule name, a fraction of the capacity (default: always on)
+    #[serde(default)]
+    pub schedule: Option<String>,
+    /// Submeter label for end-use reporting (default: "General")
+    #[serde(default = "default_submeter")]
+    pub submeter: String,
 }
 
 /// Controls how infiltration interacts with exhaust fans and HVAC airflows.
@@ -539,6 +583,17 @@ pub struct ThermostatInput {
     /// ideal-load predictor and the HVAC control so they stay consistent.
     #[serde(default)]
     pub thermostat_schedule: Vec<crate::zone::ThermostatScheduleEntry>,
+    /// Name of a schedule of heating setpoints [°C], read by hour and day type
+    /// (holidays included) every timestep, as EnergyPlus
+    /// `ThermostatSetpoint:DualSetpoint` Heating Setpoint Temperature Schedule.
+    /// It replaces `heating_setpoint` for the HVAC, the zone loads and unmet
+    /// hours. Cannot be combined with `thermostat_schedule`.
+    #[serde(default)]
+    pub heating_setpoint_schedule: Option<String>,
+    /// Name of a schedule of cooling setpoints [°C], as
+    /// `heating_setpoint_schedule` for `cooling_setpoint`.
+    #[serde(default)]
+    pub cooling_setpoint_schedule: Option<String>,
     /// Hourly heating setpoints [°C] (hours 1–24) held during the heating
     /// design days, as EnergyPlus's WinterDesignDay setpoint schedule: a night
     /// setback that recovers in the morning sizes for the warm-up. Absent:

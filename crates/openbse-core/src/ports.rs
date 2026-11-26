@@ -40,10 +40,12 @@ pub enum SizingInternalGains {
     /// Gains vary hour-by-hour according to the assigned schedule profiles.
     Scheduled,
 
-    /// Full design-level gains during occupied hours (schedule fraction > 0),
-    /// zero gains during unoccupied hours (schedule fraction = 0).
-    /// A middle ground: captures peak occupied loads without inflating
-    /// unoccupied periods.
+    /// Each gain at its full design level in hours its own schedule fraction
+    /// is above zero, and off in hours it is zero. A middle ground: captures
+    /// peak occupied loads without inflating unoccupied periods. Gains switch
+    /// one by one, as EnergyPlus evaluates each object's own design-day
+    /// schedule, so equipment that runs all night does not bring the zone's
+    /// people and lights with it.
     FullWhenOccupied,
 }
 
@@ -161,6 +163,10 @@ pub trait AirComponent: std::fmt::Debug {
         None
     }
 
+    /// Told at the start of each timestep whether the run is in warmup.
+    /// Default: ignored.
+    fn set_warmup(&mut self, _warmup: bool) {}
+
     /// What kind of component this is, for energy accounting.
     /// Defaults to `Other` — override to get automatic end-use routing.
     fn component_kind(&self) -> ComponentKind {
@@ -213,6 +219,16 @@ pub trait AirComponent: std::fmt::Debug {
         None
     }
 
+    /// Run a multi-speed component at one speed (0-based) at full output,
+    /// or `None` to let it pick its own speed. A unitary control that
+    /// time-averages between speeds sets it (see `CoolingCoilDXMultiSpeed`).
+    fn set_speed(&mut self, _speed: Option<usize>) {}
+
+    /// Number of discrete speeds a multi-speed component has (0 for others).
+    fn speed_count(&self) -> usize {
+        0
+    }
+
     /// Part-load ratio a compressor runs at within its own on-cycle this
     /// timestep (setpoint part load, or cycling below its lowest speed),
     /// reported with its power uncorrected for cycling. The driver combines it
@@ -254,6 +270,13 @@ pub trait AirComponent: std::fmt::Debug {
     /// Set the nominal capacity (called during autosizing).
     fn set_nominal_capacity(&mut self, _cap: f64) {}
 
+    /// Rated air volume flow [m³/s] and rated total capacity [W] at each speed
+    /// of a DX coil, checked after sizing against
+    /// [`crate::types::DX_FLOW_PER_CAPACITY`]. Empty for anything else.
+    fn dx_rated_points(&self) -> Vec<(f64, f64)> {
+        Vec::new()
+    }
+
     /// Available over rated total capacity at the design coil-inlet wet-bulb and
     /// outdoor temperature, and the coil's flow-per-capacity range [m³/s/W], for
     /// a coil whose rated capacity is not its capacity at the design state
@@ -292,6 +315,10 @@ pub trait AirComponent: std::fmt::Debug {
     /// loop's supply equals the sum of its boxes' flows. `None` lets the box
     /// set its own flow from its control signal.
     fn set_primary_air_flow(&mut self, _flow: Option<f64>) {}
+
+    /// Set a terminal box's minimum flow fraction for this timestep (a VAV
+    /// box with a scheduled minimum). Default no-op.
+    fn set_min_flow_fraction(&mut self, _fraction: f64) {}
 
     /// Primary air flow a terminal box passed this timestep [kg/s].
     fn primary_air_flow(&self) -> Option<f64> {
@@ -439,6 +466,10 @@ pub trait PlantComponent: std::fmt::Debug {
         None
     }
 
+    /// Told at the start of each timestep whether the run is in warmup.
+    /// Default: ignored.
+    fn set_warmup(&mut self, _warmup: bool) {}
+
     /// What kind of component this is, for energy accounting.
     /// Defaults to `Other` — override to get automatic end-use routing.
     fn component_kind(&self) -> ComponentKind {
@@ -474,6 +505,14 @@ pub trait PlantComponent: std::fmt::Debug {
     /// Returns `f64::INFINITY` if unconstrained (default).
     fn rated_capacity(&self) -> f64 {
         f64::INFINITY
+    }
+
+    /// Load limits for a plant operation scheme's distribution [W], as
+    /// (minimum, maximum, optimum): E+ `MinLoad`, `MaxLoad` and `OptLoad`.
+    /// Default: no minimum, the rated capacity for both the others.
+    fn load_limits(&self) -> (f64, f64, f64) {
+        let cap = self.rated_capacity();
+        (0.0, cap, cap)
     }
 
     /// Design water flow rate for autosizing [m³/s]. Returns None if not applicable.

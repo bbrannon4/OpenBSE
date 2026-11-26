@@ -133,33 +133,33 @@ pct_total = (total_ob - total_ep) / total_ep * 100
 print(f'{"TOTAL":<22} {total_ep:>12,.1f} {total_ob:>12,.1f} {pct_total:>+9.1f}%')
 
 
-# ── Large Office (Boulder, ASHRAE 90.1-2019) ─────────────────────────────
-# EnergyPlus reference values (GJ → kWh: ×277.778)
-# Source: LargeOffice_Denver_simplified.idf (large_office/eplus_run/eplustbl.csv)
+# ── Large Office (Denver-Buckley weather, ASHRAE 90.1-2019) ──────────────
+# EnergyPlus 25.2 reference values (GJ → kWh: ×277.778)
+# Source: large_office/eplus_run/eplustbl.csv (annual run of eplus_run/in.idf)
 eplus_office_gj = {
-    'Heating\n(Gas)':       1457.05,
-    'Cooling\n(Elec)':      1990.56,
+    'Heating\n(Gas)':       1701.01,
+    'Cooling\n(Elec)':      2122.24,
     'Interior\nLighting':   5610.74,
-    'Exterior\nLighting':   1006.07,
+    'Exterior\nLighting':   1006.50,
     'Interior\nEquipment': 14676.40,
     'Exterior\nEquipment':  2567.07,
-    'Fans':                 3637.15,
-    'Pumps':                 467.17,
+    'Fans':                 3753.42,
+    'Pumps':                 486.16,
     'DHW\n(Elec)':           450.48,
 }
 eplus_office = {k: v * 277.778 for k, v in eplus_office_gj.items()}
 
-# OpenBSE results (kWh) from large_office/LargeOffice_Boulder_summary.txt
+# OpenBSE results (kWh): LargeOffice_Boulder in tests/model_baselines.json
 openbse_office = {
-    'Heating\n(Gas)':       517439.6,
-    'Cooling\n(Elec)':      743351.0,
-    'Interior\nLighting':  1605569.1,
-    'Exterior\nLighting':   296814.9,
-    'Interior\nEquipment': 4120788.7,
-    'Exterior\nEquipment':  711724.4,
-    'Fans':                 813859.0,
-    'Pumps':                124105.5,
-    'DHW\n(Elec)':          131925.9,
+    'Heating\n(Gas)':       455045.3,
+    'Cooling\n(Elec)':      589598.0,
+    'Interior\nLighting':  1558538.6,
+    'Exterior\nLighting':   279272.8,
+    'Interior\nEquipment': 4076724.8,
+    'Exterior\nEquipment':  713075.0,
+    'Fans':                1038012.9,
+    'Pumps':                 99962.4,
+    'DHW\n(Elec)':          125146.7,
 }
 
 cats_o = list(eplus_office.keys())
@@ -168,7 +168,7 @@ ov_o = [openbse_office[c] for c in cats_o]
 
 make_comparison_chart(
     cats_o, ev_o, ov_o,
-    'Large Office (Boulder, ASHRAE 90.1-2019) — Energy End-Use Comparison',
+    'Large Office (Denver-Buckley, ASHRAE 90.1-2019) — Energy End-Use Comparison',
     'large_office/LargeOffice_Boulder_comparison.png',
     figsize=(14, 6)
 )
@@ -208,7 +208,7 @@ eplus_hosp_gj = {
 eplus_hosp = {k: v * 277.778 for k, v in eplus_hosp_gj.items()}
 
 # Check if hospital results exist
-hosp_summary = os.path.join(os.path.dirname(__file__), 'hospital', 'Hospital_STD2022_Boulder_summary.txt')
+hosp_summary = os.path.join(os.path.dirname(__file__), 'hospital', 'Hospital_STD2022_Denver_summary.txt')
 if os.path.exists(hosp_summary):
     print('\n\nHospital results found — parsing...')
     # Parse the summary file for end-use values
@@ -264,7 +264,7 @@ if os.path.exists(hosp_summary):
 
         make_comparison_chart(
             cats_h, ev_h, ov_h,
-            'Hospital (ASHRAE 90.1-2022, Boulder) — Energy End-Use Comparison',
+            'Hospital (ASHRAE 90.1-2022, Denver) — Energy End-Use Comparison',
             'hospital/Hospital_STD2022_comparison.png',
             figsize=(14, 6)
         )

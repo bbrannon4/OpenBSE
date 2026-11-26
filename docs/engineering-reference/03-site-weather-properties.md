@@ -19,7 +19,12 @@ week of 1 January (Monday if absent). The other header lines are not used.
 
 Each record is one hour, ending at the hour stamped on it (@sec-time). The
 reader keeps every record and fails on a malformed one rather than skipping
-it, since a skipped record would shift every later hour. It removes
+it, since a skipped record would shift every later hour. A blank or non-numeric
+value in any field the engine reads, in a record or in the ground temperatures,
+is an error naming the line and field. EnergyPlus also stops on one
+(`InterpretWeatherDataLine`): missing data is written as the numeric sentinels
+of @tbl-epw-missing, not as blank text, and reading it as zero would give a
+plausible but wrong value. It removes
 29 February. It then requires consecutive hourly records of a non-leap year
 starting on 1 January, so record $N$ is hour $N$ of the year. TMY3 files are
 read the same way, with pressure converted from mbar to Pa. Their horizontal
@@ -90,9 +95,26 @@ EnergyPlus (and OpenBSE, @sec-solar-position) set to zero with the sun down.
 
 The day of the week is counted from the weather file's 1 January
 (`schedule::day_of_week`). Holidays come from the model's `simulation`
-settings and are day type 8. There is no daylight saving time, and no input
-to override the starting day of the week; EnergyPlus's DOE prototype models
-use both ([#199](https://github.com/bbrannon4/OpenBSE/issues/199)).
+settings and are day type 8.
+
+**Daylight saving time.** `simulation.daylight_saving_time` gives a start and
+an end date: a month and day, the $n$th weekday of a month, or its last weekday
+(`2nd Sunday in March`), resolved in the run year's calendar
+(`DstDate::day_of_year`). Every day from the start to the end, both inclusive,
+is a daylight-saving day, on which every schedule is read one clock hour later:
+the value for hour $h$ is the schedule's value for hour $h + 1$, and for hour 24
+the next day's hour 1, with that day's type and date (`ScheduleManager::shifted`).
+Weather, solar position and design days are never shifted.
+
+**Comparison with EnergyPlus.** This is `RunPeriodControl:DaylightSavingTime`:
+whole days from the start date to the end date are marked
+(`WeatherManager::SetDSTDateRanges`), and a schedule lookup adds the day's
+indicator to the hour (`ScheduleDetailed::getHrTsVal`, `hr + DSTIndicator`, rolling
+hour 24 to the next day). EnergyPlus also applies a period read from the weather
+file (`Use Weather File Daylight Saving Period`); OpenBSE does not read it, and
+none of the shipped weather files has one. There is no input to override the
+weather file's starting day of the week
+([#199](https://github.com/bbrannon4/OpenBSE/issues/199)).
 
 ## Design days {#sec-design-days}
 
@@ -119,10 +141,14 @@ with $f_h$ for hours 1–24 of 0.88, 0.92, 0.95, 0.98, 1.00, 0.98, 0.91, 0.74, 0
 0.38, 0.23, 0.13, 0.05, 0, 0, 0.06, 0.14, 0.24, 0.39, 0.50, 0.59, 0.68, 0.75, 0.82
 [@ashrae2021fund, Ch. 14], and each timestep interpolated linearly within its hour.
 
-**Heating design days** have no solar irradiance, 10/10 opaque sky cover and the given
-wind speed.
+**Sky.** Every design day has a clear sky (0/10 opaque sky cover) and no
+horizontal infrared, so its sky temperature is the Clark–Allen clear-sky value
+from the dry-bulb and dew point (@sec-sky). On the Denver heating design day
+(−17.9 °C, saturated) that is −36.8 °C, as in E+.
 
-**Cooling design days** have 1/10 sky cover and a clear-sky irradiance:
+**Heating design days** have no solar irradiance and the given wind speed.
+
+**Cooling design days** have a clear-sky irradiance:
 
 $$
 I_\text{DN} = 1080\,e^{-0.174/\sin\alpha}\ \text{W/m}^2, \qquad
@@ -147,8 +173,10 @@ and the dew point for the sky temperature both come from this.
 schedules for each. EnergyPlus's relative-humidity type is an hourly schedule, where
 the constant value here is a simplification. Its sky is the ASHRAE clear sky, or the
 ASHRAE tau model when `taub` and `taud` are given; OpenBSE accepts `taub` and `taud`
-but does not use them ([#50](https://github.com/bbrannon4/OpenBSE/issues/50)), and sky
-cover and wind direction are fixed.
+but does not use them ([#50](https://github.com/bbrannon4/OpenBSE/issues/50)). Its sky
+cover is 0, or 10 for a day with its rain indicator set, and its sky temperature comes
+from the clear-sky emissivity (`CalcSkyEmissivity`); OpenBSE has no rain indicator, so
+its design days are always clear. The wind direction is fixed at 0°.
 
 ## Solar position {#sec-solar-position}
 
@@ -448,15 +476,14 @@ default is a hot-water value.
 
 - [#50](https://github.com/bbrannon4/OpenBSE/issues/50): cooling design-day
   solar is a fixed clear-sky formula; `taub` and `taud` are ignored.
-- [#195](https://github.com/bbrannon4/OpenBSE/issues/195): irradiance is held
-  constant through the hour; wind direction is not interpolated; sun-position
-  timing and the sun-up test differ from EnergyPlus.
-- [#196](https://github.com/bbrannon4/OpenBSE/issues/196): Perez model
-  details (zenith cap, horizon floor); no ground-reflectance input.
-- Design days have fixed sky cover and wind direction, and no temperature or
-  humidity schedules.
-- [#199](https://github.com/bbrannon4/OpenBSE/issues/199): no daylight saving
-  time or start-day-of-week input.
+- [#287](https://github.com/bbrannon4/OpenBSE/issues/287): no
+  ground-reflectance input; it is fixed at 0.2.
+- [#297](https://github.com/bbrannon4/OpenBSE/issues/297): design days have
+  fixed sky cover and wind direction, and no temperature or humidity
+  schedules.
+- [#289](https://github.com/bbrannon4/OpenBSE/issues/289): only the
+  Clark–Allen sky emissivity model; no input to choose another or to ignore
+  the weather file's infrared.
+- [#199](https://github.com/bbrannon4/OpenBSE/issues/199): no
+  start-day-of-week input.
 - No glycol properties.
-- [#201](https://github.com/bbrannon4/OpenBSE/issues/201): ground-surface
-  temperatures are interpolated rather than held per month; unused

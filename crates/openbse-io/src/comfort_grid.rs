@@ -236,6 +236,46 @@ impl ComfortGridRecorder {
         self.zones.is_empty()
     }
 
+    /// What the `.err` file reports about the grid: a warning per zone the
+    /// input named that couldn't be gridded (or one listing the zones left
+    /// out of a default all-zones grid), and a severe error when no zone
+    /// could be gridded at all, since the grid would then be empty.
+    pub fn diagnostics(&self, input: &ComfortGridInput) -> (Vec<String>, Option<String>) {
+        let reasons = || {
+            self.skipped
+                .iter()
+                .map(|(z, r)| format!("'{z}' ({r})"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        if self.zones.is_empty() {
+            let detail = if self.skipped.is_empty() {
+                "the model has no zones".to_string()
+            } else {
+                reasons()
+            };
+            return (
+                Vec::new(),
+                Some(format!("Comfort grid: no zone can be gridded: {detail}")),
+            );
+        }
+        let warnings = if self.skipped.is_empty() {
+            Vec::new()
+        } else if input.zones.is_empty() {
+            vec![format!(
+                "Comfort grid: {} zone(s) not gridded: {}",
+                self.skipped.len(),
+                reasons()
+            )]
+        } else {
+            self.skipped
+                .iter()
+                .map(|(z, r)| format!("Comfort grid: zone '{z}' not gridded: {r}"))
+                .collect()
+        };
+        (warnings, None)
+    }
+
     /// Adds one converged timestep. The last timestep of each hour closes the
     /// hour and updates the per-point statistics.
     pub fn record_timestep(&mut self, env: &BuildingEnvelope, ts: &TimeStep) {

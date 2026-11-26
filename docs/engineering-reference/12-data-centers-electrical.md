@@ -11,13 +11,13 @@ A zone with a `data_center` block gets an equipment gain of $P_\text{IT}$, from
 `it_load_kw` or `rack_count` × `kw_per_rack`, times `it_load_schedule`. The gain is
 wholly sensible and convective, and tagged with the `datacenter` submeter. It is
 reported under the `it_equipment` end use, not as plug load. An optional
-`lighting_w_per_m2` adds lights.
+`lighting_w_per_m2` adds lights; without it the hall has none.
 
 **Comparison with EnergyPlus.** `ElectricEquipment:ITE:AirCooled` [@eplus-engref-25-2,
 "Heat Gain from IT Equipment"] has CPU power and airflow as functions of inlet
 temperature and load, separate fan power, supply and return approach temperatures and
 recirculation. OpenBSE's IT power depends only on its schedule
-([#260](https://github.com/bbrannon4/OpenBSE/issues/260)).
+([#399](https://github.com/bbrannon4/OpenBSE/issues/399)).
 
 ## Hot-aisle return {#sec-hot-aisle}
 
@@ -41,7 +41,9 @@ T_\text{ret} = T_z + \frac{\dot Q_\text{byp}}{\dot m_uc_p}.
 $$ {#eq-hot-aisle}
 
 $\dot Q_\text{byp}$ is taken from the room air's gains, because it goes straight to the
-unit's coil. It is recomputed each HVAC iteration from the current supply.
+unit's coil. It is recomputed each HVAC iteration from the current supply. The server
+airflow converts to volume at the timestep's barometric pressure. The reported
+`dc_return_air_temp` is this $T_\text{ret}$, and `dc_rack_outlet_temp` is $T_\text{hot}$.
 
 **Sizing.** The design-day runs take the bypass the same way, at the zone's cooling
 supply temperature and its current air temperature, with the unit taking at least the
@@ -50,11 +52,12 @@ return-air lighting heat does (@sec-air-sizing). The unit's design flow then car
 only the room's own load, and its coil is sized on the hot return it sees in
 operation, as the run gives it.
 
-**Supply temperature.** For a CRAC or CRAH (@sec-crac-crah) whose first zone is a data
-centre, the supply setpoint is replaced by `rack_inlet_temp_max_c`, or otherwise the
-equipment class's allowable limit: A1 32, A2 35, A3 40, A4 45 °C. With the default
-class, that makes the setpoint 35 °C, at which the coil cannot cool the room
-([#260](https://github.com/bbrannon4/OpenBSE/issues/260)).
+**Supply temperature.** A CRAC or CRAH (@sec-crac-crah) supplies its loop's
+`cooling_supply_temp`. A data centre's rack inlet limit, `rack_inlet_temp_max_c` or
+otherwise the equipment class's allowable maximum (A1 32, A2 35, A3 40, A4 45 °C), is a
+check on it: a supply above the limit of any data centre the loop serves is a warning.
+The supply sits at the cold-aisle (rack inlet) side, so the limit bounds it; ASHRAE's
+recommended inlet range, 18–27 °C, is the usual design target.
 
 **Comparison with EnergyPlus.** @eq-hot-aisle plays the role of the ITE object's
 return approach. It is a mass-weighted form of the same idea; EnergyPlus's
@@ -70,13 +73,18 @@ x = \min\left(\frac{P}{\sum P_r},\ 1\right), \qquad
 P_\text{loss} = \sum_{\text{UPS, transformers}} P_rx\left(\frac{1}{\eta} - 1\right).
 $$ {#eq-elec-dist}
 
-The defaults are $\eta = 0.95$ for a UPS and 0.985 for a transformer. These losses are
-electricity use that heats nothing. The UPS `efficiency_curve` input is not read
-([#260](https://github.com/bbrannon4/OpenBSE/issues/260)).
+The defaults are $\eta = 0.95$ for a UPS and 0.985 for a transformer. A UPS with an
+`efficiency_curve` runs at $\eta = \eta_\text{full}f(x)$, its full-load efficiency
+times the curve at its part-load ratio, as E+ `ElectricEquipment:ITE:AirCooled`
+multiplies its design power-supply efficiency by its efficiency function of part-load
+ratio; an unknown curve name is a severe error. These losses are electricity use that
+heats nothing; a model puts their heat in a zone with an equipment gain, as
+`datacenter_crah` does.
 
 **Comparison with EnergyPlus.** EnergyPlus has `ElectricLoadCenter:Storage:Converter`
 and `:Transformer` in its electric load centre, and a UPS efficiency curve on its ITE
-object, with a loss fraction to the zone. OpenBSE has none of the rest of the electric
+object, with a loss fraction to the zone, where OpenBSE's losses reach no zone
+([#399](https://github.com/bbrannon4/OpenBSE/issues/399)). OpenBSE has none of the rest of the electric
 load centre (generators, storage, photovoltaics).
 
 ## ASHRAE 90.4 metrics {#sec-90-4}
@@ -93,14 +101,14 @@ where $E_\text{mech}$ is the fan, cooling, pump and heat-rejection energy tagged
 `datacenter` submeter [@ashrae904]. It compares MLC with a limit from the first digit of the
 climate zone (0.05 to 0.08), and ELC with 0.06.
 
-These limits have no citation, and have not been checked against the standard. Do not
-rely on the report's PASS and FAIL. If nothing is tagged, MLC is zero. The hourly `pue`
-output counts all submeter energy, so it can differ from the annual one
-([#260](https://github.com/bbrannon4/OpenBSE/issues/260)).
+These limits have no citation and have not been checked against the standard, so the
+report gives each metric only as below or above them, with no compliance result. With no
+HVAC energy tagged `datacenter`, MLC is not evaluated and the run warns. The hourly
+`pue` output counts all submeter energy, so it can differ from the annual one
+([#399](https://github.com/bbrannon4/OpenBSE/issues/399)).
 
 ## Known limitations {#sec-datacenter-limitations}
 
-- [#260](https://github.com/bbrannon4/OpenBSE/issues/260): supply setpoint overwritten with
-  the class's allowable limit; UPS curve unread; no IT temperature or fan model; unverified
-  90.4 limits and tag-dependent MLC.
-- [#62](https://github.com/bbrannon4/OpenBSE/issues/62): earlier CRAC and CRAH review.
+- [#399](https://github.com/bbrannon4/OpenBSE/issues/399): no IT temperature or fan
+  model; distribution losses heat no zone; unverified 90.4 limits; annual and hourly
+  PUE differ.

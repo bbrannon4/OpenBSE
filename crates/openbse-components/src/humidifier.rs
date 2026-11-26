@@ -38,6 +38,16 @@ fn steam_generation_energy() -> f64 {
     H_FG_100C + cp_mean * (100.0 - T_MAKEUP_WATER)
 }
 
+/// Water density E+ converts a humidifier's rated volume capacity with
+/// (`RhoH2O(InitConvTemp)`, 5.05 °C) [°C].
+const T_CAPACITY_CONVERSION: f64 = 5.05;
+
+/// Rated steam output [kg/s] from E+'s Rated Capacity [m³/s of water]
+/// (`Humidifiers.cc`, `NomCap = RhoH2O(InitConvTemp) × NomCapVol`).
+pub fn capacity_from_volume(volume_flow: f64) -> f64 {
+    volume_flow * psych::water_rho(T_CAPACITY_CONVERSION)
+}
+
 /// Enthalpy of the steam entering the airstream [J/kg]: water vapour at
 /// 100 °C on the psychrometric basis of `h_fn_tdb_w` (h_fg + cp_vapour·T),
 /// as EnergyPlus uses `PsyHgAirFnWTdb(0, 100)`.
@@ -278,6 +288,17 @@ mod tests {
         hum.w_setpoint = 0.001;
         hum.simulate_air(&inlet, &make_ctx());
         assert_eq!(hum.thermal_output(), 0.0);
+    }
+
+    #[test]
+    fn test_stated_capacity_sets_the_power_per_kg() {
+        // The Hospital IDF: 100 kW and 3.72e-5 m³/s. E+ draws
+        // WaterAdd / NomCap × NomPower, NomCap = ρ(5.05 °C) × 3.72e-5.
+        let mut hum = Humidifier::new("H", 100_000.0, 0.3, 24.0);
+        hum.rated_capacity = capacity_from_volume(0.0000372);
+        assert_relative_eq!(hum.rated_capacity, 0.0000372 * 999.96, max_relative = 1e-4);
+        let per_kg = hum.rated_power / hum.rated_capacity;
+        assert!((per_kg - 2.688e6).abs() < 2e3, "{per_kg}");
     }
 
     #[test]

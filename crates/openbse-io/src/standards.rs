@@ -630,19 +630,18 @@ fn build_construction(
                 }
             },
         };
-        model.window_constructions.push(WindowConstruction {
-            name: name.to_string(),
-            u_factor: u,
-            shgc,
-            pane_solar_transmittance: None,
-            pane_solar_reflectance: None,
-            num_panes: None,
-            gap_width: None,
-            pane_conductivity: None,
-            pane_thickness: None,
-            glass_emissivity: None,
-            shading_control: None,
+        // Visible transmittance: Appendix G gives it; the prescriptive tables
+        // give a minimum VT/SHGC ratio, which sets the least VT that complies.
+        let has_vt = hit.vt.is_some();
+        let vt = hit.vt.as_ref().and_then(|h| h.si).or_else(|| {
+            hit.vt_shgc_min
+                .as_ref()
+                .and_then(|h| h.si)
+                .map(|ratio| (ratio * shgc).min(1.0))
         });
+        let mut window = WindowConstruction::simple(name, u, shgc);
+        window.visible_transmittance = vt;
+        model.window_constructions.push(window);
         report.applied.push(AppliedValue {
             target: name.to_string(),
             quantity: "U-factor".into(),
@@ -657,9 +656,15 @@ fn build_construction(
             citation: hit.shgc.citation,
             note: shgc_note,
         });
-        // The engine has no daylighting model, so VT is reported, not used.
+        // VT feeds daylighting; a VT/SHGC minimum is applied at the SHGC used.
         for (q, h) in [("VT", hit.vt), ("VT/SHGC min", hit.vt_shgc_min)] {
             if let Some(h) = h {
+                let note = match (q, vt) {
+                    ("VT/SHGC min", Some(v)) if !has_vt => {
+                        Some(format!("VT {v:.3} = ratio × SHGC, the least that complies"))
+                    }
+                    _ => None,
+                };
                 report.applied.push(AppliedValue {
                     target: name.to_string(),
                     quantity: q.into(),
@@ -668,7 +673,7 @@ fn build_construction(
                         .map(|v| format!("{v:.3}"))
                         .unwrap_or_else(|| "NR".into()),
                     citation: h.citation,
-                    note: Some("reported only: no daylighting model uses it".into()),
+                    note,
                 });
             }
         }

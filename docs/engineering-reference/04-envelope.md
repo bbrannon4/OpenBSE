@@ -50,8 +50,8 @@ is a severe error.
 ## Conduction transfer functions {#sec-ctf}
 
 **Source:** `openbse-envelope/src/ctf.rs`: `try_calculate_ctf`,
-`build_state_space`, `matrix_exponential`, `compute_ctf_from_state_space`,
-`apply_ctf`, `CtfHistory`; coefficients built at initialization by
+`build_network`, `build_state_space`, `matrix_exponential`,
+`compute_ctf_from_state_space`, `add_face_storage`, `apply_ctf`, `CtfHistory`; coefficients built at initialization by
 `heat_balance.rs::compute_all_ctf`.
 
 Conduction through an opaque construction is one-dimensional, with constant
@@ -79,9 +79,10 @@ where:
 - $q''_\text{ko}$ is the conduction flux entering the wall at the outside
   face (positive inward).
 
-The past terms $t-j$ are the values stored at the end of earlier timesteps
-(`CtfHistory`, shifted once per timestep; @sec-timestep-loop). The history
-starts at 21 °C with zero flux.
+The past terms $t-j$ are the values $j$ CTF time steps back
+(@sec-ctf-time-step), stored at the end of each zone timestep
+(`CtfHistory`; see @sec-timestep-loop). The history starts at 21 °C with
+zero flux.
 
 ### State-space formulation {#sec-ctf-state-space}
 
@@ -90,25 +91,32 @@ handled as follows:
 
 - **Massed layers.** A massed layer of thickness $L$ and diffusivity
   $\alpha = k/(\rho c_p)$ gets
-  $N = \min(\max(\lceil L/\Delta x_n\rceil, 6), 18)$ divisions of width
-  $\Delta x = L/N$, with $\Delta x_n = \sqrt{2\alpha\,\Delta t}$.
-- **Massless layers at either end** ($\rho c_p L < 1$ J/(m²·K), or NoMass) add
-  their resistance in series with the conductance $k/\Delta x$ between the
-  face and the first or last node.
+  $N = \min(\max(\lfloor L/\Delta x_n\rfloor, 10), 19)$ divisions of width
+  $\Delta x = L/N$, with $\Delta x_n = \sqrt{2\alpha\,\Delta t_z}$ at the
+  zone timestep $\Delta t_z$ (the explicit finite-difference stability
+  spacing). Its $N + 1$ grid points include both of its faces.
+- **Massless layers at either end** ($\rho c_p L < 1$ J/(m²·K), or NoMass) are
+  a conductance $1/R$ between the surface and the face of the first or last
+  massed layer.
 - **Massless layers between massed ones** become one resistive division of
   conductance $1/R$ with no capacitance; adjacent ones are combined.
 
-The interior nodes $\theta$ (one fewer than the total number of divisions)
-carry these capacitances:
+Each grid point carries the heat capacity of the material within
+$\Delta x/2$ of it:
 
-- $\rho c_p \Delta x$ for a node inside a layer;
+- $\rho c_p \Delta x$ inside a layer;
 - $\tfrac12(\rho c_p\Delta x)_\ell + \tfrac12(\rho c_p\Delta x)_{\ell+1}$
-  for a node at a layer interface;
-- $1.5\,\rho c_p \Delta x$ for the first and last node, which also hold the
-  half-cell at each face.
+  at a layer interface;
+- $C_\text{f} = \tfrac12\rho c_p \Delta x$ at the outer face of the first and
+  last massed layer.
 
-The total capacitance is therefore conserved. With the face temperatures
-$u = (T_\text{so}, T_\text{si})^\mathsf{T}$ as inputs and the face fluxes
+This is the finite-volume network with nodes on the faces, whose spatial
+error is second order in $\Delta x$. The total capacitance is conserved. The
+grid points are the states $\theta$, except a face that is itself the
+surface: its temperature is a CTF input, and its half cell enters as a face
+storage term (below). Behind a NoMass resistance the face is a state like
+any other. With the surface temperatures
+$u = (T_\text{so}, T_\text{si})^\mathsf{T}$ as inputs and the surface fluxes
 $y = (q''_\text{ko}, q''_\text{ki})^\mathsf{T}$ as outputs:
 
 $$
@@ -116,11 +124,11 @@ $$
 $$ {#eq-state-space}
 
 where $A$ is tridiagonal (nodal conductances over capacitances), and $B$, $C$
-and $D$ couple the first and last node to the faces through the boundary
-conductances $h_\text{b} = 1/(R_\text{nomass} + \Delta x/k)$.
+and $D$ couple the first and last state to the surfaces through the
+conductance between them, $k/\Delta x$ or $1/R$.
 
-Assuming the face temperatures vary linearly within a timestep, the exact
-discrete solution uses
+Assuming the face temperatures vary linearly within a CTF time step
+$\Delta t$, the exact discrete solution uses
 
 $$
 \Phi = e^{A\Delta t},\qquad
@@ -145,36 +153,128 @@ $$ {#eq-ctf-coefficients}
 
 The two cross terms of $S_0$ are set to the mean of their magnitudes, so the
 construction is reciprocal. The series stops when
-$|e_j|/|e_1| < 10^{-13}$. If it has not converged in 18 terms, the run stops
-with an error.
+$|e_j|/|e_1| < 10^{-13}$, or at $j = n$, the number of nodes, where
+$R_n = 0$ by the Cayley–Hamilton theorem and the series is exact.
 
-**Checks.** The steady-state transmittance implied by the coefficients,
-$U_\text{CTF} = \sum Z_j / (1 - \sum\Phi_j)$, is compared with
-$1/\sum R_\ell$. A difference above 1% is reported as a warning, and above 5%
-as an error.
+**Face storage.** A face at the surface has the surface temperature, which
+varies linearly within each step, so its half cell stores
+$C_\text{f}(T^t - T^{t-1})/\Delta t$ per unit time over the step, exactly. The
+term adds to $q''_\text{ko}$ at the outside face and subtracts from
+$q''_\text{ki}$ at the inside face. Because the flux histories hold the total
+flux, it is multiplied by the flux polynomial
+$\Phi(z) = 1 - \sum_{j\ge1}\Phi_j z^{-j}$:
+
+$$
+X_j \mathrel{+}= \frac{C_\text{f,o}}{\Delta t}\,d_j,\qquad
+Z_j \mathrel{+}= \frac{C_\text{f,i}}{\Delta t}\,d_j,\qquad
+\sum_j d_j z^{-j} = (1 - z^{-1})\,\Phi(z).
+$$ {#eq-ctf-face-storage}
+
+The series gains one term (with $\Phi_j = 0$ there). Since $\sum_j d_j = 0$,
+the steady-state transmittance is unchanged.
+
+### CTF time step {#sec-ctf-time-step}
+
+The CTF time step $\Delta t$ is the zone timestep for almost every
+construction. A layer at the 19-division cap is coarser than its stability
+spacing, so the CTF time step grows to that layer's Fourier-number-one step,
+rounded to the nearest whole number $N$ of zone timesteps:
+
+$$
+\Delta t_n = \max_{\ell:\,N_\ell = 19} \frac{\rho_\ell c_{p,\ell}\,\Delta x_\ell^2}{k_\ell},
+\qquad N = \left\lfloor \frac{\Delta t_n}{\Delta t_z} + \tfrac12 \right\rfloor,
+\qquad \Delta t = N\,\Delta t_z .
+$$ {#eq-ctf-time-step}
+
+A capped layer always gives $\Delta t_n \ge 2\Delta t_z$, so $N \ge 2$ there.
+The node network stays as set at the zone timestep. The series is then
+rejected, $N$ grows by one and the series is recomputed while any of these
+holds:
+
+- it needs more than 18 history terms;
+- its sums disagree, $\max(|\sum X - \sum Y|, |\sum Z - \sum Y|) > 0.01
+  \max(\sum X, \sum Y, \sum Z)$ (in theory they are equal);
+- its steady-state transmittance
+  $U_\text{CTF} = \sum Z_j / (1 - \sum\Phi_j)$ is more than 5% from
+  $1/\sum R_\ell$.
+
+A CTF time step reaching 7 h is an error naming the construction and the
+layer with the longest node time constant. A single layer of soil or
+concrete thicker than about 2 to 2.5 m reaches it, and so do several
+metre-thick ones together. An
+accepted series whose $U_\text{CTF}$ is more than 1% off is reported as a
+warning.
+
+**Staggered histories.** With $N > 1$, every zone timestep's face
+temperatures and fluxes are kept for $N$ times the series length. The zone
+timestep $t$ reads the exact values at $t - N\Delta t_z$, $t - 2N\Delta t_z$,
+and so on. The zone timesteps fall into $N$ interleaved history sets, each a
+CTF recursion at $\Delta t$ in its own right. The surface balance therefore
+updates every zone timestep, and each set conserves energy on its own.
 
 **Special cases.**
 
 - With total capacitance below 1 J/(m²·K), the CTF is steady state:
   $X_0 = Y_0 = Z_0 = U$, with no history.
-- When the construction reduces to a single node, it is a lumped RC element:
+- A simple construction with $\tau < 10\,\Delta t$
+  (@sec-simple-constructions) is a lumped RC element:
   $X_0 = Y_0 = Z_0 = U(1 - e^{-\Delta t/\tau})$ and
   $\Phi_1 = e^{-\Delta t/\tau}$, with $\tau = RC$.
 
-**Comparison with EnergyPlus.** The method, node rules, capacitances and
-recurrence follow `Construction::calculateTransferFunction`
+**Comparison with EnergyPlus.** The method, the stability spacing and
+19-division cap, the interface capacitances, the recurrence, the CTF time
+step of @eq-ctf-time-step, its escalation on more than 18 terms or a sum
+mismatch above 1%, and the 7 h ceiling (`MaxAllowedTimeStep`) follow
+`Construction::calculateTransferFunction`
 [@eplus-engref-25-2, "Conduction Transfer Function (CTF) Calculations in EnergyPlus"]. The
 differences are:
 
-- **Node count.** It is rounded up, where EnergyPlus truncates, and capped at
-  18 rather than 19.
-- **No CTF time-step escalation.** EnergyPlus lengthens the CTF time step
-  (to a multiple of the zone timestep) when a layer hits the node cap, or
-  when the series needs too many terms, and keeps multi-step histories.
-  OpenBSE always uses the zone timestep and stops instead
-  ([#204](https://github.com/bbrannon4/OpenBSE/issues/204)).
-- **Acceptance test.** EnergyPlus checks $\sum X = \sum Y = \sum Z$; OpenBSE
-  checks the steady-state U.
+- **Node network.** EnergyPlus uses at least 6 divisions (`MinNodes`) and
+  puts each surface half cell into the first node inside it
+  ($1.5\,\rho c_p\Delta x$, a full $\Delta x$ from the surface), a first-order
+  error in $\Delta x$. OpenBSE uses at least 10 divisions and keeps the half
+  cell on the surface. Against the exact solutions, with the outside surface
+  driven and the inside surface held, at a 10 min step (largest error over
+  the last day or the whole response, as a percentage of each flux's
+  amplitude or largest value, inside / outside):
+
+  | Wall | Daily cycle, OpenBSE | Daily cycle, EnergyPlus network | Step, OpenBSE | Step, EnergyPlus network |
+  |---|---|---|---|---|
+  | Light (ASHRAE 140 LTWALL) | 0.02 / 0.73 | 0.07 / 0.73 | 0.22 / 0.02 | 0.89 / 0.11 |
+  | 10 cm concrete | 0.18 / 0.24 | 1.92 / 2.02 | 1.52 / 1.50 | 7.09 / 24.2 |
+  | 20 cm concrete | 0.78 / 0.39 | 7.21 / 8.45 | 1.67 / 6.19 | 7.31 / 51.4 |
+  | Insulated (ASHRAE 140 HWWALL) | 0.15 / 0.71 | 2.28 / 0.76 | 0.27 / 0.03 | 1.72 / 0.10 |
+  | NoMass faces, 15 cm concrete | 0.07 / 0.01 | 3.95 / 0.21 | 0.03 / 0.06 | 1.14 / 0.55 |
+
+  The daily cycle is compared with the transmission-matrix solution; the
+  step (linear over the first zone step, then held) with its exact response,
+  inverted from the same matrices by the fixed Talbot contour. That step
+  comparison isolates the network: the CTF is exact for linear inputs. The
+  light wall's outside error at the daily cycle is the time step's phase
+  error, the same for both (6% at 1 h, 1.3% at 15 min). The steady-state U
+  stays exact (within $10^{-8}$ at steps of 5 min and longer), and the
+  heat the step lets in matches the final profile's stored heat within
+  $10^{-6}$. The finer network adds about one CTF term on average, with no
+  measurable effect on run time.
+
+- **Multi-step histories.** EnergyPlus (`UpdateThermalHistories`) keeps one
+  master history at the start of each block of $N$ zone timesteps and
+  interpolates the working histories linearly between block starts. OpenBSE
+  reads the exact past values. For 60 cm of concrete at 10 min with its outside
+  face stepped 10 K, the master-history interpolation stores 1.8% less heat
+  than the step delivers (3.9% at 1 min); the exact histories close to 0.01%,
+  as a single-step CTF does. Their periodic accuracy is the same or slightly
+  better (daily cycle, inside flux 6.0% against 6.1% of its amplitude, both
+  on EnergyPlus's node network).
+- **Steady-state check.** OpenBSE also escalates when $U_\text{CTF}$ is more
+  than 5% off the layers' U, and warns above 1%.
+- **Massless end layers.** EnergyPlus gives a NoMass first or last layer the
+  properties of air and nodes of its own; OpenBSE makes it a conductance
+  between the surface and the massed layer's face node
+  (@sec-ctf-state-space).
+- **Layer thickness.** EnergyPlus rejects any layer over 3 m; OpenBSE has no
+  thickness limit of its own, and a massive layer that thick reaches the 7 h
+  ceiling.
 
 ## Simple constructions {#sec-simple-constructions}
 
@@ -254,8 +354,6 @@ fixed surface films.
   constructions use synthetic layers tuned to ASHRAE 140, and do not always
   conserve the specified heat capacity.
 - HAMT is not wired in (@sec-hamt).
-- [#204](https://github.com/bbrannon4/OpenBSE/issues/204): no CTF time-step
-  escalation for massive constructions.
 
 ## Surface heat balances {#sec-surface-hb}
 
@@ -266,11 +364,11 @@ Each opaque surface has an outside and an inside face temperature, linked by
 the conduction of @eq-ctf. Windows have their own balance (@sec-window-hb).
 Each envelope solve repeats the following steps until, after at least two passes,
 no zone air temperature changes by more than 10⁻⁴ K, no zone humidity ratio by
-more than 10⁻⁷ kg/kg and no inside face by more than 2×10⁻⁴ K, or until five
-passes. A solve still changing by more than 0.001 K after five is counted and
-reported as a warning (@sec-diagnostics). The limit of five is the old fixed count:
-more passes destabilize the HVAC iteration on near-massless zones
-([#320](https://github.com/bbrannon4/OpenBSE/issues/320)).
+more than 10⁻⁷ kg/kg and no inside face by more than 2×10⁻⁴ K, or until 20
+passes. A solve still changing by more than 0.001 K after 20 is counted and
+reported as a warning (@sec-diagnostics). The limit is a guard only: the HVAC
+iteration reads a load in which the faces follow the air (@eq-load-line), so it
+stays stable however far the passes settle.
 
 1. Solve the outside faces.
 2. Solve the windows.
@@ -349,7 +447,7 @@ sky–air split and the ground at air temperature match
 
 - **No wet surfaces.** EnergyPlus treats wind-exposed faces as wet during
   rain ($h_{c,o} = 1000$ W/(m²·K), face at the outdoor wet-bulb); OpenBSE
-  does not ([#209](https://github.com/bbrannon4/OpenBSE/issues/209)).
+  does not ([#319](https://github.com/bbrannon4/OpenBSE/issues/319)).
 - **No surrounding-surface or ground-temperature inputs** for long-wave
   exchange.
 - **Interzone pairing.** EnergyPlus pairs interzone surfaces by name or by
@@ -444,6 +542,10 @@ vertices, else $\sqrt{A}$.
 
 ### Outside faces (DOE-2) {#sec-doe2}
 
+`simulation.outside_convection_algorithm` picks the outside-face model, as
+E+'s `SurfaceConvectionAlgorithm:Outside` does: `doe2` (the default, as in
+E+) or `tarp` (@sec-tarp-outside).
+
 Wind-exposed outside faces use the DOE-2 model (`exterior_convection_full`).
 It combines natural convection with the MoWiTT forced-convection correlation
 for smooth glass [@yazdanian1994], scaled by a roughness multiplier $R_f$:
@@ -468,6 +570,43 @@ azimuth. Surfaces with `wind_exposure: false` use $h_n$ alone.
 
 : Roughness multipliers. {#tbl-roughness}
 
+### Outside faces (TARP) {#sec-tarp-outside}
+
+With `outside_convection_algorithm: tarp` (`exterior_convection_tarp`), the
+outside coefficient is the TARP natural convection of @eq-tarp plus the forced
+convection over a finite plate of Sparrow, Ramsey and Mass [@sparrow1979; @walton1983]:
+
+$$
+h_f = 2.537\,W_f\,R_f\sqrt{\frac{P\,V}{A}},
+\qquad
+h_{c,o} = h_n + h_f,
+$$ {#eq-tarp-outside}
+
+with $W_f = 1$ windward and $0.5$ leeward (the DOE-2 windward test), $R_f$
+from @tbl-roughness, $V$ the wind at the surface, and $A$ and $P$ the gross
+area and perimeter of the face the wind flows over. A window or door uses its
+parent surface's $A$ and $P$, since it starts no new boundary layer, and its own
+roughness and height. The perimeter is $P = 2(A/H + H)$, with $H$ the length
+from the surface's first vertex to its second (its height in E+'s upper-left,
+counter-clockwise vertex order), or $\sqrt{A}$ for a polygon of more than four
+sides that is not that rectangle. A surface given without vertices takes its
+input `height`, else $\sqrt{A}$. Surfaces with `wind_exposure: false` use $h_n$
+alone.
+
+Because $h_f$ falls as $\sqrt{P/A}$, a large face sees much less forced
+convection under TARP than under DOE-2, whose MoWiTT correlation has no size.
+For a 1,600 m² roof on a heating design day (0.95 m/s at the roof), TARP gives
+2.83 W/(m²·K) and DOE-2 4.77, and the roof's outside face runs about 2 K
+colder.
+
+**Comparison with EnergyPlus.** This is E+'s `TarpHcOutside`
+(`InitExtConvCoeff`, `CalcSparrowWindward`, `CalcSparrowLeeward`), with the
+same base-surface area, perimeter approximation and height rule
+(`ProcessSurfaceVertices`). For that roof and a 29 m wall on the same design
+day, the coefficients come out at 2.832 and 2.930 W/(m²·K) against E+'s 2.832
+and 2.920 (the wall's natural term, at a 0.24 K difference, depends on which
+iteration's surface temperature evaluates it).
+
 **Wind at the surface.** The weather-station wind (10 m, open country) is
 moved to the surface's centroid height $z$ with the ASHRAE power law
 [@ashrae2021fund, Ch. 24]:
@@ -489,18 +628,19 @@ $z$ is the mean height of the surface's vertices. For surfaces given
 without vertices, it is estimated from the zone height: floors 0.1 m, walls
 mid-height, roofs at the top. That ignores the floor the zone is on.
 
-**Comparison with EnergyPlus.** These match EnergyPlus's default algorithms,
-TARP inside and DOE-2 outside (`ConvectionCoefficients::CalcASHRAETARPNatural`,
-`CalcDOE2Forced`, `Windward`, `SetSurfaceWindSpeedAt`), with the same
+**Comparison with EnergyPlus.** These match EnergyPlus's TARP inside
+algorithm and its DOE-2 and TARP outside algorithms
+(`ConvectionCoefficients::CalcASHRAETARPNatural`, `CalcDOE2Forced`,
+`CalcSparrowWindward`, `Windward`, `SetSurfaceWindSpeedAt`), with the same
 roughness multipliers, windward test and wind profile
 [@eplus-engref-25-2, "Outdoor/Exterior Convection", "Interior Convection"].
 EnergyPlus's other
-algorithms (adaptive convection, ASHRAE simple, MoWiTT alone) are not
-available.
+algorithms (adaptive convection, ASHRAE simple, MoWiTT alone, per-surface
+`SurfaceProperty:ConvectionCoefficients`) are not available.
 
 ## Known limitations: surface heat balances {#sec-surface-hb-limitations}
 
-- [#209](https://github.com/bbrannon4/OpenBSE/issues/209): no wet surfaces in rain.
+- [#319](https://github.com/bbrannon4/OpenBSE/issues/319): no wet surfaces in rain.
 
 ## Interior long-wave exchange {#sec-lw-exchange}
 
@@ -622,7 +762,7 @@ shade counts with its own emissivity, and it absorbs the window's share.
 **Comparison with EnergyPlus.** EnergyPlus uses the approximate factors of
 @eq-approx-vf by default; polygon factors require user input
 (`ZoneProperty:UserViewFactors`). OpenBSE computes them from the geometry,
-a deliberate improvement from PR #161. `FixViewFactors`, the ScriptF
+a deliberate improvement. `FixViewFactors`, the ScriptF
 interchange (`CalcScriptF`) and the exchange (`CalcInteriorRadExchange`)
 match EnergyPlus [@eplus-engref-25-2, "Internal Long-Wave Radiation Exchange"]. OpenBSE's
 approximate rule also treats azimuths 350° and 10° as within 10°, which
@@ -630,151 +770,258 @@ EnergyPlus does not.
 
 ## Known limitations: long-wave exchange {#sec-lw-limitations}
 
-- [#52](https://github.com/bbrannon4/OpenBSE/issues/52): superseded by the
-  polygon view factors. The remaining limitation is that obstruction by third
-  surfaces is ignored in non-convex zones.
+- Polygon view factors ignore obstruction by third surfaces, so they are
+  exact only for convex zones (@sec-view-factors).
 
 ## Windows {#sec-windows}
 
-**Source:** `material.rs::WindowConstruction`; `solar.rs` (glazing optics:
-`SgsAngularModel`, `compute_glass_angular_params`, `angular_shgc_modifier_u`,
-the Fresnel functions); `heat_balance.rs::solve_timestep` (steps 5b and 6,
-window branch), `sealed_air_gap_conductance`, `solve_window_with_shade`,
-`shade_solar`; `openbse-cli/src/main.rs::evaluate_blind_control`.
+**Source:** `glazing.rs` (gases, gap Nusselt number, layer and system optics,
+simple glazing equivalent layer, face heat balance, nominal performance);
+`material.rs::WindowConstruction::glazing`; `heat_balance.rs::solve_timestep`
+(step 5b, window solar; step 5c, reflected diffuse on windows; step 6,
+window loop), `solve_window`, `shade_solar`, `window_glazings`;
+`openbse-cli/src/main.rs::evaluate_blind_control`.
 
-A window construction is described by its NFRC U-factor $U$ (films
-included) and its normal-incidence $SHGC$. Optional data refine it:
+A window is a glazing system of one or more glass layers with a gas gap
+between each pair. Its area is subtracted from its parent surface. A
+window construction describes the glazing in one of two ways:
 
-- per-pane solar transmittance and reflectance;
-- the number of panes (one or two; anything else is a severe error);
-- the gap width;
-- the pane conductivity and thickness;
-- the glass emissivity (default 0.84);
-- a shading control.
+- **Simple glazing** (default): the NFRC U-factor $U$ (films included) and
+  the normal-incidence $SHGC$. The glazing is EnergyPlus's equivalent single
+  layer for those ratings (@sec-window-sgs).
+- **Layered glazing** (`layers`): one to four glass layers, each a glazing
+  material with its thickness, conductivity, normal-incidence solar (and
+  optionally visible) transmittance and front and back reflectance, front and
+  back emissivity and dirt factor (after EnergyPlus `WindowMaterial:Glazing`,
+  spectral average), and between each pair a gas gap of given width filled
+  with air, argon, krypton, xenon or a mixture of them by mole fraction
+  (`WindowMaterial:Gas`, `WindowMaterial:GasMixture`). The window's U-factor
+  and SHGC follow from the layers. Giving both forms, a malformed layer
+  sequence, an unknown glazing material, mixture fractions that do not add
+  up to 1, or a non-zero glass long-wave transmittance is a severe error.
 
-A window is one
-surface whose temperature is the inside glass face. Its area is subtracted
-from its parent surface.
+A construction may also carry a shading control (@sec-shades).
+
+### Simple glazing equivalent layer {#sec-window-sgs}
+
+The equivalent layer follows EnergyPlus `MaterialGlass::SetupSimpleWindowGlazingSystem`
+[@arasteh2009]. Its resistance is the U-factor less EnergyPlus's winter films,
+which depend on $U$:
+
+$$
+R_l = \frac1U - R_{i,w} - R_{o,w},\qquad
+R_{i,w} = \frac{1}{0.359073\ln U + 6.949915},\qquad
+R_{o,w} = \frac{1}{0.025342\,U + 29.163853},
+$$ {#eq-sgs-winter-films}
+
+with $R_{i,w} = 1/(1.788041\,U - 2.886625)$ for $U \ge 5.85$ and $R_l$ at
+least 0.001 m²·K/W. Its thickness is 2 mm when $1/R_l > 7$ W/(m²·K) and
+$0.05914 - 0.00714/R_l$ m otherwise, and its conductivity is $L/R_l$. The
+normal-incidence solar transmittance comes from U-dependent correlations, for
+example for low U:
+
+$$
+\tau_\text{sol} =
+\begin{cases}
+0.41040\,SHGC & SHGC \le 0.15,\\
+0.085775\,SHGC^2 + 0.963954\,SHGC - 0.084958 & \text{otherwise},
+\end{cases}
+$$ {#eq-sgs-tsol}
+
+with the high-U form for $U > 4.5$ and linear interpolation between 3.4 and
+4.5 W/(m²·K). The solar reflectance (the same on both faces) uses solar-condition
+films, cubic and linear in $\Delta = SHGC - \tau_\text{sol}$; for $U < 3.4$, for
+example:
+
+$$
+R_{i,s} = \frac{1}{199.8208\Delta^3 - 90.6397\Delta^2 + 19.7371\Delta + 6.7666},\qquad
+R_{o,s} = \frac{1}{5.7634\Delta + 20.5415},
+$$ {#eq-sgs-solar-films}
+
+with a second set for $U > 4.5$ and EnergyPlus's interpolation between. Then
+
+$$
+N = \frac{R_l/2 + R_{o,s}}{R_l + R_{o,s} + R_{i,s}},\qquad
+\rho_\text{sol} = 1 - \tau_\text{sol} - \frac{SHGC - \tau_\text{sol}}{N}.
+$$ {#eq-sgs-films}
+
+Both faces have emissivity 0.84. The layer's angular behaviour uses
+EnergyPlus's curve set A–J for the window's U/SHGC cell (@sec-window-optics).
+
+The equivalent layer solved with the films of @sec-window-hb at NFRC winter
+conditions does not in general give back $U$, because those films are not the
+correlations of @eq-sgs-winter-films. As in EnergyPlus (`CalcNominalWindowCond`,
+`CoeffAdjRatio`), a film factor $f_h \in [1, 2]$ is found by bisection that
+makes the nominal U-factor (@sec-window-nominal) match $U$ within
+0.01 W/(m²·K), and the window's inside and outside convection coefficients
+are multiplied by it through the simulation.
 
 ### Solar optics {#sec-window-optics}
 
-The solar gain of a window is split into the transmitted part, which lands
-on the zone's surfaces (@sec-interior-solar), and the absorbed-inward
-part, which heats the glass:
+The optics follow EnergyPlus `WindowManager::InitGlassOpticalCalculations` for
+layers with spectral-average properties. Each layer's transmittance and
+front and back reflectance are found at incidence angles 0°, 10°, …, 90° from
+their normal-incidence values $\tau_0$, $\rho_{f,0}$, $\rho_{b,0}$
+(`TransAndReflAtPhi`) [@ashrae2021fund]:
+
+- **Uncoated glass** ($\rho_{f,0} = \rho_{b,0}$ within 0.1 %): the refractive
+  index $n$ and absorption $\alpha d$ that reproduce $\tau_0$ and $\rho_0$ are
+  found, and each polarisation $p$ has the Fresnel interface reflectance
+  $r_p(\theta)$ and the internal transmittance $e^{-\alpha d/\cos\theta'}$, with
+  $\cos\theta' = \sqrt{1 - \sin^2\theta/n^2}$:
+  $$
+  \tau_p = \frac{(1 - r_p)^2 e^{-\alpha d/\cos\theta'}}{1 - r_p^2 e^{-2\alpha d/\cos\theta'}},\qquad
+  \rho_p = r_p\left(1 + \tau_p e^{-\alpha d/\cos\theta'}\right),
+  $$ {#eq-fresnel-layer}
+  and the layer values are the means of the two polarisations.
+- **Coated glass**: normalised clear-glass ($\tau_0 > 0.645$) or bronze-glass
+  angular distributions scale $\tau_0$ and blend $\rho_0$ toward 1.
+- **Simple glazing**: $\tau(\theta) = \tau_\text{sol}P_T(\cos\theta)$ and
+  $\rho(\theta) = \rho_\text{sol}(1 - P_R) + P_R$, where $P_T$ and $P_R$ are
+  EnergyPlus's fourth-order curves A–J for the window's U/SHGC cell, interpolated
+  between cells as EnergyPlus does.
+
+The layers are combined with their inter-reflections at each angle
+(`SystemPropertiesAtLambdaAndPhi`). Adding layer $j$ to the stack of layers
+$i \ldots j-1$:
 
 $$
-SHGC(\theta) = \tau(\theta) + N_i\,\alpha(\theta), \qquad \alpha = 1 - \tau - \rho,
-$$ {#eq-shgc-split}
+\tau_{i..j} = \frac{\tau_{i..j-1}\,\tau_j}{1 - \rho_{f,j}\,\rho_{b,i..j-1}},\qquad
+\rho_{f,i..j} = \rho_{f,i..j-1} + \frac{\tau_{i..j-1}^2\,\rho_{f,j}}{1 - \rho_{f,j}\,\rho_{b,i..j-1}},
+$$ {#eq-layer-stack}
 
-where $N_i$ is the inward-flowing fraction of the absorbed solar. Beam
-irradiance uses the values at its incidence angle $\theta$. Diffuse (sky,
-circumsolar, horizon and ground) uses hemispherical averages, computed as
-$\int_0^{\pi/2} X(\theta)\cos\theta\sin\theta\,d\theta \big/ \int_0^{\pi/2}\cos\theta\sin\theta\,d\theta$
-over 200 angles. As in EnergyPlus, a window's input data select its model:
+and the absorptance of layer $j$ in the system is
 
-1. **Simple glazing** (no pane data). This is EnergyPlus's
-   SimpleGlazingSystem model [@arasteh2009]. The normal-incidence
-   transmittance comes from the U-dependent correlations, for example for
-   low U:
+$$
+A_j = \frac{\tau_{1..j-1}\,\alpha_{f,j}}{1 - \rho_{f,j..n}\,\rho_{b,1..j-1}}
++ \frac{\tau_{1..j}\,\rho_{f,j+1..n}\,\alpha_{b,j}}{1 - \rho_{b,1..j}\,\rho_{f,j+1..n}},
+$$ {#eq-layer-abs}
 
-   $$
-   \tau_\text{sol} =
-   \begin{cases}
-   0.41040\,SHGC & SHGC \le 0.15,\\
-   0.085775\,SHGC^2 + 0.963954\,SHGC - 0.084958 & \text{otherwise},
-   \end{cases}
-   $$ {#eq-sgs-tsol}
+with $\alpha = 1 - \tau - \rho$ for the isolated layer. The same calculation
+with the layers reversed gives the back (room-side) absorptances. The system
+transmittance and each layer's absorptance are fitted as
+$\sum_{k=1}^{6} c_k\cos^k\theta$ by least squares over the ten angles
+(`W5LsqFit`), and hemispherical values are
+$\int_0^{\pi/2} X(\theta)\sin 2\theta\,d\theta$ by the trapezoidal rule over the
+same angles (`DiffuseAverage`). A dirt factor scales the outermost layer's
+transmittance.
 
-   with the high-U form for $U > 4.5$ and linear interpolation between
-   3.4 and 4.5 W/(m²·K). The layer resistance uses EnergyPlus's winter films, which depend on $U$:
+Beam irradiance $I_b$ uses the fits at its incidence angle; all diffuse
+irradiance $I_d$ (sky, circumsolar, horizon and ground) uses the hemispherical
+values. Per unit window area the room receives $\tau(\theta)I_b + \tau_dI_d$,
+which the zone's surfaces absorb (@sec-interior-solar), and glass layer $j$
+absorbs
 
-   $$
-   R_l = \frac1U - R_{i,w} - R_{o,w},\qquad
-   R_{i,w} = \frac{1}{0.359073\ln U + 6.949915},\qquad
-   R_{o,w} = \frac{1}{0.025342\,U + 29.163853},
-   $$ {#eq-sgs-winter-films}
+$$
+S_j = A_j(\theta)\,I_b + A_{j,d}\,I_d + S_{j,\text{room}},
+$$ {#eq-layer-solar}
 
-   with $R_{i,w} = 1/(1.788041\,U - 2.886625)$ for $U \ge 5.85$. The inward
-   fraction uses its solar-condition films, cubic and linear in
-   $\Delta = SHGC - \tau_\text{sol}$. For $U < 3.4$, for example:
-
-   $$
-   R_{i,s} = \frac{1}{199.8208\Delta^3 - 90.6397\Delta^2 + 19.7371\Delta + 6.7666},\qquad
-   R_{o,s} = \frac{1}{5.7634\Delta + 20.5415},
-   $$ {#eq-sgs-solar-films}
-
-   with a second set for $U > 4.5$ and interpolation between, as in EnergyPlus. Then
-
-   $$
-   N = \frac{R_l/2 + R_{o,s}}{R_l + R_{o,s} + R_{i,s}},\qquad
-   \rho_\text{sol} = 1 - \tau_\text{sol} - \frac{SHGC - \tau_\text{sol}}{N}.
-   $$ {#eq-sgs-films}
-
-   The angular dependence uses EnergyPlus's curve set A–J for the window's
-   U/SHGC bin:
-   $\tau(\theta) = \tau_\text{sol}\,P_T(\cos\theta)$ and
-   $\rho(\theta) = \rho_\text{sol}(1 - P_R + P_T) + (P_R - P_T)$, where
-   $P_T$ and $P_R$ are fourth-order polynomials in $\cos\theta$.
-2. **Fresnel** (per-pane $\tau_p$ and $\rho_p$ given). One pane, or two
-   identical panes (`num_panes`, default 2), of refractive index $n$ fitted to
-   $\rho_p$ and extinction thickness $kd$ fitted to $\tau_p$. Each pane's
-   transmittance and reflectance follow from the Fresnel reflectance
-   $r = (r_s + r_p)/2$ and internal absorption $e^{-kd/\cos\theta'}$, and two
-   panes are combined with their inter-reflections:
-
-   $$
-   \tau_2 = \frac{\tau_1^2}{1 - \rho_1^2},\qquad \rho_2 = \rho_1 + \frac{\tau_1^2\rho_1}{1 - \rho_1^2}.
-   $$ {#eq-fresnel-double}
-
-   $N_i$ is fitted so @eq-shgc-split reproduces the SHGC at normal
-   incidence.
-
-The transmitted solar then splits into beam and diffuse parts
-(@sec-interior-solar). The absorbed-inward part is
-$SHGC\cdot I - \tau\cdot I$, per unit window area.
+where $S_{j,\text{room}}$ is its share of the room's reflected diffuse
+(@sec-interior-solar). The SHGC is not an input to this split: the part of
+$S_j$ that reaches the room follows from the heat balance.
 
 ### Window heat balance {#sec-window-hb}
 
-The glass is one node, at the inside face temperature $T_g$:
+The two faces of each glass layer have their own temperature, faces
+$1 \ldots 2n$ from outdoors to the room, and all are solved together
+(EnergyPlus `WindowManager::SolveForWindowTemperatures`). Each layer's absorbed
+solar is split equally between its faces. With $k_j/L_j$ the layer's
+conductance and $\theta$ face temperatures [K]:
+
+- **Outer face.** Convection and long-wave exchange with the outdoors,
+  $$
+  h_{c,o}f_h(T_o - \theta_1) + \varepsilon_1\left(E_o - \sigma\theta_1^4\right)
+  + \frac{k_1}{L_1}(\theta_2 - \theta_1) + \frac{S_1}{2} = 0,
+  $$ {#eq-window-outer}
+  where $h_{c,o}$ is the outside convection (@sec-doe2) and $E_o$ the
+  long-wave irradiance from sky, air and ground with the view factors and the
+  sky/air split of @eq-ext-hrad.
+- **Faces across a gap** $g$ between faces $a$ and $b$,
+  $$
+  q_g = h_g(\theta_a - \theta_b) + \frac{\varepsilon_a\varepsilon_b\,\sigma\left(\theta_a^4 - \theta_b^4\right)}{1 - (1 - \varepsilon_a)(1 - \varepsilon_b)},
+  $$ {#eq-window-gap}
+  leaves face $a$ and reaches face $b$, which also exchange conduction with
+  the other face of their layer and receive their halves of its absorbed
+  solar.
+- **Inner face.** Convection to the zone air, linearised long-wave exchange
+  with the zone's surfaces (@eq-lw-linear) and the window's share of the
+  radiant internal gains $q''_{r,\text{int}}$:
+  $$
+  \frac{k_n}{L_n}(\theta_{2n-1} - \theta_{2n}) + \frac{S_n}{2} + h_{c,i}f_h(T_z - \theta_{2n})
+  + h_{r,i}(T_\text{mrt} - \theta_{2n}) + q''_{r,\text{int}} = 0,
+  $$ {#eq-window-inner}
+  with $h_{c,i}$ the ISO 15099 window inside convection (@sec-tarp), at least
+  0.1 W/(m²·K) as EnergyPlus's `LowHConvLimit`.
+
+The gap conductance is $h_g = Nu\,k/w$ for gap width $w$. The gas
+properties at the mean gap temperature follow ISO 15099 Annex B
+[@iso15099]: conductivity, viscosity and specific heat are quadratics in
+temperature, and the density is the ideal gas at $10^5$ Pa. Mixtures use
+ISO 15099's rules (eqs. 56–68) as EnergyPlus codes them
+(`WindowGasConductance`). The Nusselt number is ISO 15099 §5.3.3.3
+(`NusseltNumber`), with $Ra = Gr\,Pr$ on the gap width and $A = H/w$ for
+window height $H$:
 
 $$
-\begin{gathered}
-u_{e,g}\left(T_\text{ext} - T_g\right) + h_{c,i}(T_z - T_g) + h_{r,i}(T_\text{mrt} - T_g)
-+ q''_\text{abs,in} + q''_{r,\text{int}} = 0,\\
-u_{e,g} = \left(\frac{1}{h_e} + \frac{1}{u_g}\right)^{-1}.
-\end{gathered}
-$$ {#eq-window-node}
+Nu_{90} = \max\left(Nu_1,\; 0.242\left(\frac{Ra}{A}\right)^{0.272}\right),\qquad
+Nu_1 =
+\begin{cases}
+1 + 1.7596678\times10^{-10}Ra^{2.2984755} & Ra \le 10^4,\\
+0.028154\,Ra^{0.4134} & Ra \le 5\times10^4,\\
+0.0673838\,Ra^{1/3} & \text{otherwise}.
+\end{cases}
+$$ {#eq-gap-nu90}
 
-The terms are:
+A cavity heated from above has $Nu = 1 + (Nu_{90} - 1)\sin\gamma$ at tilt
+$\gamma$. Heated from below, $Nu$ interpolates linearly between $Nu_{60}$
+(ISO 15099 eqs. 45–47) at 60° and $Nu_{90}$ at 90°, and below 60° it is
+Hollands et al.'s correlation [@hollands1976]:
 
-- **Outside film.** $h_e = h_{c,o} + h_\text{sky} + h_\text{air} + h_\text{gnd}$
-  is the outside film, with @eq-doe2 and @eq-ext-hrad at the glass
-  emissivity. $T_\text{ext}$ is the $h$-weighted mean of outdoor air, sky
-  and ground temperature.
-- **Inside film.** $h_{c,i}$ is the window inside convection
-  (@sec-tarp), and $h_{r,i}$ and $T_\text{mrt}$ come from @eq-lw-linear at
-  the glass emissivity.
-- **Glass conductance** $u_g$:
-  - **Simple glazing** (default): $u_g = 1/R_l$ from @eq-sgs-winter-films.
-  - **Single pane** (`num_panes: 1` with pane data): $u_g = k/L$.
-  - **Gap model** (gap width and pane data):
-    $u_g = (2L/k + 1/h_\text{gap})^{-1}$, with an air gap whose
-    $h_\text{gap} = Nu\,k_\text{air}/s + h_{r,\text{gap}}$ follows ISO 15099
-    [@iso15099]. $Nu$ comes from the vertical-cavity correlations for tilt
-    ≥ 60° and from Hollands et al. [@hollands1976] for inclined gaps. The
-    result is capped at 1.05 times the film-stripped value. The model assumes
-    two panes, whatever `num_panes` is
-    ([#214](https://github.com/bbrannon4/OpenBSE/issues/214)).
+$$
+Nu = 1 + 1.44\left[1 - \frac{1708}{Ra\cos\gamma}\right]^+\left(1 - \frac{1708\,(\sin 1.8\gamma)^{1.6}}{Ra\cos\gamma}\right)
++ \left[\left(\frac{Ra\cos\gamma}{5830}\right)^{1/3} - 1\right]^+.
+$$ {#eq-gap-hollands}
 
-@eq-window-node is solved in five fixed iterations, updating $h_{c,i}$,
-$h_{r,i}$, $T_\text{mrt}$ and the gap conductance. When
-$h_{c,i} + h_{r,i} < 2$ W/(m²·K), they are floored at 0.5 and 1.5. The outside
-glass face temperature is back-calculated from the conduction through $u_g$.
+For a window facing upward the outer face is the cavity's upper face; for one
+facing downward ($\gamma > 90°$) the inner face is, and $180° - \gamma$ is
+used.
 
-Any part of $q''_\text{abs,in}$ that the node conducts outdoors is added
-directly to the zone air. The whole absorbed-inward gain therefore reaches
-the zone, as the SHGC definition implies. The glass's convection enters the
-zone air balance through $h_{c,i}A(T_g - T_z)$.
+Each iteration evaluates the gap conductances, the inside convection and the
+long-wave coefficients at the current temperatures ($\sigma\theta^4$ is
+written $(\sigma\theta^3)\,\theta$), solves the linear system, and moves the
+temperatures toward the solution: fully while the steps contract, by half
+once a step grows, and by a quarter after 25 iterations. It stops when the
+largest step is below $10^{-5}$ K, within 100 iterations; a solve that
+reaches the limit is a severe run-time error (@sec-run-checks). Each window
+is solved once per surface–air pass against the zone air and the other
+surfaces' temperatures from the previous pass, starting from its own faces
+from the previous solve, and the passes repeat until surfaces and air have
+settled (@sec-surface-hb).
+
+The room sees the inner face: its convection enters the zone air balance
+through $h_{c,i}f_hA(\theta_{2n} - T_z)$, and its long-wave exchange the
+interior exchange of @sec-lw-exchange. The outer face temperature is the
+window's outside surface temperature, and the conduction reported for a
+window is through its inner glass layer.
+
+### Nominal performance {#sec-window-nominal}
+
+A glazing's nominal U-factor and SHGC are those of EnergyPlus
+`CalcNominalWindowCond`: centre of glass, vertical, 1 m tall for the inside
+convection and 1.524 m for the gap aspect ratio, sky at the outdoor
+temperature. Winter: $T_z = 21$ °C, $T_o = -18$ °C, $h_{c,o} = 26$ W/(m²·K).
+Summer: $T_z = 24$ °C, $T_o = 32$ °C, $h_{c,o} = 15$ W/(m²·K) and 783 W/m² of
+beam at normal incidence. The inside convection is ISO 15099's vertical-plate
+correlation for dry air. With the face temperatures solved,
+
+$$
+U = \frac{1}{R_\text{tot}},\qquad
+SHGC = \tau(0) + \sum_j A_j(0)\,\frac{R_{o,j}}{R_\text{tot}},
+$$ {#eq-window-nominal}
+
+where $R_{o,j}$ is the resistance from the outdoor air to the middle of layer
+$j$ and the films and gaps use their combined radiative and convective
+coefficients. A layered glazing reports these values as its U-factor and SHGC.
 
 ### Interior shades and blinds {#sec-shades}
 
@@ -788,14 +1035,15 @@ signal falls below the trigger minus the hysteresis. The signal is either:
 
 A deployed device is modelled in one of two ways:
 
-- **Assembly rating** (`blind_shgc`, `blind_u_factor`). All solar gains are
-  scaled by $SHGC_\text{blind}/SHGC$ (clamped to [0, 1]), and $u_g$ is the
-  film-stripped blind U-factor.
+- **Assembly rating** (`blind_shgc`, `blind_u_factor`, which defaults to the
+  window's U-factor). The window+blind assembly is a simple glazing system of
+  its own (@sec-window-sgs), which replaces the window's glazing in the optics
+  and the heat balance while the blind is down, as a shaded construction does
+  in EnergyPlus.
 - **Shade layer** (`shade`). The fabric's solar transmittance $\tau_{sh}$
   (with openness $o$), reflectance $\rho_{sh}$ and emissivity are given.
   Solar transmitted by the glass ($I_g$, beam $I_{g,b}$) bounces between
   glass and shade:
-
   $$
   \begin{gathered}
   I_{sh} = \frac{I_g}{1 - \rho_{sh}\rho_g},\qquad
@@ -803,41 +1051,62 @@ A deployed device is modelled in one of two ways:
   \text{shade} = \alpha_{sh}I_{sh},\qquad \text{glass} = \rho_{sh}I_{sh}\alpha_g,
   \end{gathered}
   $$ {#eq-shade-solar}
-
-  where $\rho_g$ and $\alpha_g$ are the glazing's room-side hemispherical
-  properties; the rest, $\rho_{sh}I_{sh}\tau_g$, leaves through the glass.
-  Glass, shade and gap air are then three nodes solved together, ten times
-  with updated coefficients:
-
+  where $\rho_g$ and $\alpha_g$ are the glazing's hemispherical room-side
+  reflectance and absorptance; the glass's share goes to each layer in
+  proportion to its room-side absorptance, and the rest, $\rho_{sh}I_{sh}\tau_g$,
+  leaves through the glass. The shade and the air in the gap behind it are two
+  more nodes, solved with the glass faces: the inner glass face exchanges
+  with them in place of @eq-window-inner,
   $$
   \begin{aligned}
-  u_{e,g}(T_\text{ext} - T_g) + q''_g &= h_{r,gs}(T_g - T_{sh}) + h_{cv}(T_g - T_a),\\
-  q''_{sh} &= h_{r,gs}(T_{sh} - T_g) + h_{cv}(T_{sh} - T_a)\\
-  &\quad + h_{cs}(T_{sh} - T_z) + h_{r,i}(T_{sh} - T_\text{mrt}),\\
-  h_{cv}(T_g - T_a) + h_{cv}(T_{sh} - T_a) &= h_\text{vent}(T_a - T_z),
+  \text{glass:}\quad & \tfrac{k_n}{L_n}(\theta_{2n-1} - \theta_{2n}) + \tfrac{S_n}{2} = h_{r,gs}(\theta_{2n} - T_{sh}) + h_{cv}(\theta_{2n} - T_a),\\
+  \text{shade:}\quad & q''_{sh} = h_{r,gs}(T_{sh} - \theta_{2n}) + h_{cv}(T_{sh} - T_a) + h_{cs}(T_{sh} - T_z) + h_{r,i}(T_{sh} - T_\text{mrt}),\\
+  \text{gap air:}\quad & h_{cv}(\theta_{2n} - T_a) + h_{cv}(T_{sh} - T_a) = h_\text{vent}(T_a - T_z),
   \end{aligned}
   $$ {#eq-shade-nodes}
-
   with:
+  - $q''_{sh}$ the shade's absorbed solar and the window's share of the radiant
+    internal gains;
   - $h_{r,gs} = 4\sigma\bar T^3/(1/\varepsilon_g + 1/\varepsilon_{sh} - 1)$;
   - gap convection $h_{cv} = 2h_c + 4v$ and ventilation
     $h_\text{vent} = \rho c_p v d/H$;
-  - the buoyant gap velocity $v = 0.7\sqrt{gH|T_a - T_z|/T_z}$ [@iso15099].
+  - the buoyant gap velocity $v = 0.7\sqrt{gH|T_a - T_z|/T_z}$ [@iso15099];
+  - $h_{cs}$ the window inside convection at the shade.
 
   The discharge coefficient 0.7 was calibrated against EnergyPlus interior
-  shade runs (#144). The room sees the shade as the window's inside face.
+  shade runs. The room sees the shade as the window's inside face,
+  and the gap air returned to the room is a convective gain.
 
 **Comparison with EnergyPlus.**
 
-- **Simple-glazing correlations and curves.** The transmittance
-  correlations and angular curves follow
-  `MaterialGlass::SetupSimpleWindowGlazingSystem`
-  [@eplus-engref-25-2, "Simple Window Model"].
-- **Thermal model.** EnergyPlus solves two face temperatures per glass
-  layer, with each layer's absorbed solar, per-gap gas properties and the
-  full ISO 15099 gap correlations (`WindowManager::SolveForWindowTemperatures`).
-  The lumped node of @eq-window-node, the two-pane gap model and the caps are
-  deviations ([#214](https://github.com/bbrannon4/OpenBSE/issues/214)).
+- **Equivalent layer and film factor.** The thickness, conductivity, solar
+  transmittance and reflectance of the equivalent layer, the film factor, and
+  the nominal SHGC match EnergyPlus 25.2's eio output for six U/SHGC pairs
+  within rounding (`glazing.rs` tests).
+- **Layer optics and heat balance.** For one to four layers of clear and low-e
+  glass with air, argon, krypton, xenon and an argon/air mixture, the nominal
+  U-factor, SHGC and solar and visible transmittance match EnergyPlus 25.2's
+  within 0.0025. Against WINDOW 7, which integrates the measured spectra, the
+  spectral-average optics agree within 0.006 of incident solar (ASHRAE 140
+  glazings ID 15 and 23).
+- **ASHRAE 140.** Case 660's window is the layered low-e argon glazing of
+  the EnergyPlus reference model, not a U-factor and SHGC: the U-factor of
+  1.19 W/(m²·K) quoted for it is WINDOW 7's at the standard's test films,
+  while the same layers have an NFRC U-factor of 1.38 W/(m²·K).
+- **Deviations, all with the same converged solution or a closer one:**
+  - EnergyPlus stops at a mean face change of 0.02 K; this solve stops at
+    $10^{-5}$ K, so the window settles within the surface–air passes.
+  - EnergyPlus under-relaxes every step by half; this solve takes full steps
+    until a step grows, which reaches the same fixed point in fewer iterations.
+  - EnergyPlus treats the outer face as the cavity's upper face at any tilt;
+    for windows facing downward the inner face is used here.
+  - EnergyPlus solves windows inside its inside-surface iteration, with
+    long-wave written as absorbed irradiance less emission. Here they are
+    solved once per surface–air pass with linearised interior long-wave,
+    and the passes repeat to the same converged state.
+  - In the film-factor bisection EnergyPlus solves the faces with the
+    previous step's outside coefficient; here each step uses its own. The
+    U-factors differ by less than the 0.01 W/(m²·K) tolerance.
 - **Shades.** The shade layer follows `WindowMaterial:Shade` with an
   ISO 15099 vented gap, simplified to fixed air properties and one gap
   velocity.
@@ -847,8 +1116,15 @@ A deployed device is modelled in one of two ways:
 
 ## Known limitations: windows {#sec-windows-limitations}
 
-- [#214](https://github.com/bbrannon4/OpenBSE/issues/214): lumped glass node,
-  two-pane air-only gap model, ad hoc caps.
+- Frames and dividers, and EnergyPlus's edge-of-glass correction, are not
+  modelled; the whole window area is centre of glass.
+- Layer data is spectral-average; spectral data sets are not read.
+- Glass is opaque to long-wave radiation, as EnergyPlus assumes in the
+  bare-glazing balance.
+- A deployed shade does not change the window's room-side absorptance and
+  transmittance for the room's reflected diffuse.
+- Gases are limited to air, argon, krypton and xenon with ISO 15099's
+  coefficients; EnergyPlus's custom gas is not available.
 
 ## Interior solar distribution {#sec-interior-solar}
 
@@ -856,7 +1132,7 @@ A deployed device is modelled in one of two ways:
 surface and applied as $q''_\text{r}$ in @eq-inside-temp.
 
 The beam and diffuse solar transmitted by a zone's windows (@sec-window-optics)
-is distributed in four steps.
+is distributed in three steps.
 
 1. **Beam landing.** `simulation.solar_distribution` selects how the beam
    lands:
@@ -875,19 +1151,17 @@ is distributed in four steps.
    $\alpha_j S_{b,j}$, where $S_{b,j}$ is the beam landing on it and
    $\alpha_j$ its inside solar absorptance. The rest of the beam joins the
    diffuse pool.
-3. **Cavity back-out.** Part of the diffuse pool leaves the zone again
-   through the windows: their back transmittance $\tau_b$ plus the outward
-   share of their back absorptance $\alpha_b$. The pool kept is
-   $$
-   S_d = \left(S_\text{d,win} + S_b - \sum_j\alpha_jS_{b,j}\right)
-   \frac{\sum_k A_k\alpha_k}{\sum_k A_k\alpha_k + \sum_w A_w\left[\tau_b + \alpha_b(1 - N_i)\right]},
-   $$ {#eq-cavity-backout}
-   with $k$ over opaque surfaces and $w$ over windows.
-4. **Diffuse absorbed.** Every opaque surface absorbs in proportion to
-   $A_k\alpha_k$ (EnergyPlus's VMULT):
+3. **Diffuse absorbed.** The diffuse pool, transmitted diffuse plus the
+   reflected beam, $S_d = S_\text{d,win} + S_b - \sum_j\alpha_jS_{b,j}$, is
+   shared over all the zone's surfaces in proportion to $A_k\alpha_k$
+   (EnergyPlus's VMULT), windows included with
+   $\alpha_w = \tau_{d,b} + \sum_j A_{j,d,b}$, their hemispherical room-side
+   transmittance and layer absorptances (@sec-window-optics):
    $$
    Q_{\text{sol},k} = \alpha_k S_{b,k} + \frac{A_k\alpha_k}{\sum_m A_m\alpha_m}\,S_d.
    $$ {#eq-vmult}
+   A window's share transmitted back out leaves the zone; the share each of
+   its layers absorbs is that layer's $S_{j,\text{room}}$ in @eq-layer-solar.
 
 **Comparison with EnergyPlus.** FullExterior, the absorbed and reflected
 beam, the VMULT distribution and the back-out follow
@@ -895,9 +1169,6 @@ beam, the VMULT distribution and the back-out follow
 `InitIntSolarDistribution` [@eplus-engref-25-2, "Solar Distribution"]. The
 differences ([#68](https://github.com/bbrannon4/OpenBSE/issues/68)):
 
-- **Windows absorb no diffuse.** EnergyPlus includes windows in the VMULT
-  sum, and the glass absorbs its share of the reflected diffuse. OpenBSE
-  gives that share to the opaque surfaces.
 - **Fallback.** Zones that lack vertices fall back to fixed fractions or
   to the air, rather than to FullExterior.
 - **Beam projection.** The projection uses the whole window, not its
@@ -1104,24 +1375,35 @@ derived from ASHRAE unit leakage areas [@ashrae2021fund, Ch. 16]. With a
 target ACH50 they are all rescaled so the envelope passes it at 50 Pa.
 Operable windows and doorways may be large openings, two-way openings or
 horizontal openings, with scheduled or natural-ventilation-controlled areas.
-Exhaust fans and the net HVAC supply–return imbalance (from the previous
-timestep) are fixed flows, and duct leaks are pressure-dependent cracks.
+Each zone's net HVAC exchange with the outdoors, outdoor air minus exhaust
+(zone exhaust fans included), from the previous timestep, is a fixed flow.
+Duct leaks are pressure-dependent cracks, or fixed flows when no static
+pressures are given.
 
-**Flow elements.** With $\Delta p$ the pressure difference across a path
-and $\bar\rho$ the mean density of its two nodes:
+**Flow elements.** With $\Delta p$ the pressure difference across a path:
 
 $$
-\dot m_\text{crack} = C\left(\frac{\bar\rho}{\rho_\text{ref}}\right)^{1-n}\operatorname{sgn}(\Delta p)|\Delta p|^n,
+\dot m_\text{crack} = C\left(\frac{\rho^*}{\rho_\text{ref}}\right)^{1-n}\left(\frac{\mu_\text{ref}}{\bar\mu}\right)^{2n-1}\operatorname{sgn}(\Delta p)|\Delta p|^n,
 \qquad
-\dot m_\text{open} = C_d A\operatorname{sgn}(\Delta p)\sqrt{2\bar\rho|\Delta p|},
+\dot m_\text{open} = C_d A\operatorname{sgn}(\Delta p)\sqrt{2\rho^*|\Delta p|},
 $$ {#eq-afn-elements}
 
-linearized through zero for $|\Delta p|$ below a small threshold.
+where $\rho^* = \rho_\text{up}T_\text{up}/\bar T$ is the upstream node's
+density corrected to the mean temperature of the two nodes (for an ideal
+gas, the density at $\bar T$ in either flow direction), $\bar\mu$ the mean
+of the two nodes' viscosities, $\mu = 1.71432\times10^{-5} + 4.828\times10^{-8}\,T$
+Pa·s with $T$ in °C, and $\rho_\text{ref} = 1.2041$ kg/m³ and $\mu_\text{ref}$
+the values for dry air at 20 °C and 101,325 Pa, where $C$ is defined. Below a
+small $|\Delta p|$ threshold the flow follows the chord between the
+threshold's two endpoints, so it is continuous through zero.
 
 - **Two-way openings** integrate the orifice equation in closed form above
   and below the neutral plane. Over the opening height, $\Delta p$ varies
   with slope $g(\rho_b - \rho_a)$, so warm air leaves through the top while
-  cold air enters below.
+  cold air enters below. The opening height is the surface's vertical
+  extent: its `height` times $\sin\beta$, else its vertices' $z$-range, else
+  $\sqrt{A}\sin\beta$; the opening fraction narrows the width. A large
+  opening with no vertical extent is a one-way orifice.
 - **Horizontal openings** add the buoyancy-driven exchange of Cooper and
   Epstein when the upper zone is denser [@cooper1989].
 
@@ -1150,25 +1432,31 @@ pressure coefficient $C_p$ comes from one of three models:
 node, $R_i = \sum_\text{paths}\dot m_{\to i} = 0$, by Newton–Raphson with a
 dense Jacobian and adaptive under-relaxation. It starts from the stored pressures
 and stops when the largest residual is below the
-absolute tolerance or $10^{-4}$ of the total through-flow (at most 30
-iterations). After solving, each zone's outdoor inflow becomes
+absolute tolerance or $10^{-4}$ of the total through-flow, or when the
+pressure step is below `convergence_tolerance` [Pa] with the residual
+within ten times those limits (at most 30 iterations). The absolute
+tolerance is `convergence_tolerance` × 0.001 m³/s at reference density,
+$1.2\times10^{-4}$ kg/s at the default 0.1. After solving, each zone's outdoor inflow becomes
 $\dot m_\text{inf}$. Its inflows from other zones become a mass-weighted
 stream mixed with the outdoor air (`mix_advective_streams`), giving the
 combined advective term of @eq-zone-ode and its humidity. Passive species
 (e.g. CO₂) are then advanced by an implicit zone mass balance on the solved
-flows, with sources, decay, deposition and filtration.
+flows, with sources, decay, deposition and filtration. Duct leaks carry
+species too: a return leak brings ambient-zone air to the zone, and a supply
+leak spills supply air into the ambient zone, its outdoor-air fraction
+$f = \dot m_\text{OA}/\dot m_\text{supply}$ at the outdoor concentration
+(that air never reaches the zone) and the rest at the zone's concentration.
 
-**Comparison with EnergyPlus.** The network, element equations, the
+**Comparison with EnergyPlus.** The network, element equations (E+
+`generic_crack`, with its density and viscosity corrections), the
 two-way and horizontal openings, the Swami–Chandra $C_p$ and the
 Newton–Raphson solution follow EnergyPlus's AirflowNetwork (AIRNET)
 [@eplus-engref-25-2, "AirflowNetwork Model"]. They are generated
 automatically rather than from AirflowNetwork input objects. The
-differences ([#90](https://github.com/bbrannon4/OpenBSE/issues/90)):
+differences:
 
-- **Density.** Element flows use the mean of the two node densities, not
-  the upstream density, and cracks have no viscosity correction.
 - **High-rise $C_p$.** It is a simple cosine rather than the Akins
-  surface-average table.
+  surface-average table ([#432](https://github.com/bbrannon4/OpenBSE/issues/432)).
 - **No duct network.** There is no AirflowNetwork:Distribution duct
   network; duct leakage is a pair of leak paths per duct.
 - **Timing.** E+ solves contaminants once per system timestep after the HVAC
@@ -1179,32 +1467,41 @@ differences ([#90](https://github.com/bbrannon4/OpenBSE/issues/90)):
 
 ## Known limitations: infiltration, ventilation and AFN {#sec-infiltration-limitations}
 
-- [#90](https://github.com/bbrannon4/OpenBSE/issues/90): AFN cleanups;
-  tolerance units, density convention, high-rise $C_p$.
-- Scheduled ventilation lacks E+'s `ZoneVentilation:DesignFlowRate`
-  coefficients and schedule (filed for later).
+- [#432](https://github.com/bbrannon4/OpenBSE/issues/432): high-rise wind
+  pressure coefficients are $0.6\cos\theta$ windward and $-0.3$ leeward,
+  not E+'s Akins surface-average table.
+- [#319](https://github.com/bbrannon4/OpenBSE/issues/319): scheduled
+  ventilation lacks E+'s `ZoneVentilation:DesignFlowRate` coefficients and
+  schedule.
 
 ## Internal gains {#sec-internal-gains}
 
 **Source:** `openbse-envelope/src/internal_gains.rs::resolve_gains_scheduled`;
-`heat_balance.rs::timestep_gains`; top-level `people`, `lights` and
-`equipment` objects resolved per zone in `openbse-io/src/input.rs`.
+`heat_balance.rs::timestep_gains`; top-level `people`, `lights`,
+`equipment` and `outdoor_controlled_baseboards` objects resolved per zone in
+`openbse-io/src/input.rs`.
 
 Each gain has a design level, scaled each timestep by its schedule fraction
-$f$. A level given per floor area (people per m², W/m²) uses the zone's floor
-area as given, or else the sum of its floor-surface areas (@sec-zone-geometry).
-A code or standard can supply lighting levels (@sec-standards). With $f$
-applied:
+$f$. A design level given per floor area (people, lights, equipment, and
+infiltration or ventilation flows) uses the zone's stated floor area, or else
+the area of its floor surfaces (@sec-zone-geometry); such a load on a zone
+with neither is a severe error. Equipment given per person uses the zone's
+design number of people, the sum of its people counts; per-person
+equipment in a zone without people is a severe error. A code or standard can
+supply lighting levels (@sec-standards). With $f$ applied:
 
 - **People.** $N$ occupants, either a count or per floor area, release
-  sensible $Q_s = N f\,q_s$ and latent $Q_l = N f\,q_l$. Here
-  $q_s = M\,\phi_s$ and $q_l = M(1-\phi_s)$ for an activity level $M$
-  (default 120 W) and sensible fraction $\phi_s$ (default 0.6), unless
-  explicit W/person values are given. Of $Q_s$, the fraction $r$
-  (default 0.3) is radiant.
-- **Lights.** Power $P f$. The return-air fraction $\phi_\text{ret}$ goes
+  sensible $Q_s = N f\,q_s$ and latent $Q_l = N f\,q_l$, with
+  $q_s + q_l = M$, the activity level (required, W/person). By default the
+  sensible heat per person follows $M$ and the zone air temperature $T_z$
+  at the end of the previous timestep (@eq-people-sensible), and the latent
+  heat is the remainder $q_l = M - q_s$. A given sensible fraction $\phi_s$
+  sets $q_s = M\phi_s$ instead, and explicit W/person values override
+  either. Of $Q_s$, the fraction $r$ (default 0.3) is radiant.
+- **Lights.** Power $P f$, times the zone's daylighting multiplier
+  $f_\text{day}$ in a daylit zone (@sec-daylighting). The return-air fraction $\phi_\text{ret}$ goes
   to the return air when an air loop carries it, and otherwise stays in the
-  zone air (#51, @sec-controls). The fraction $r$ (default 0.7) of the total
+  zone air (@sec-controls). The fraction $r$ (default 0.7) of the total
   is radiant and the remainder convective.
 - **Equipment.** Power $P f$. The lost fraction $\phi_\text{lost}$ leaves
   the zone, the latent fraction $\phi_l$ is moisture and the fraction $r$
@@ -1214,32 +1511,225 @@ applied:
   Q_r = Pfr,\qquad
   Q_c = Pf(1-\phi_\text{lost}-\phi_l-r).
   $$ {#eq-equipment-gain}
+  The split is the same whatever the equipment's `fuel`, which only names the
+  meter the input power $Pf$ is booked to (see below). Equipment with fuel
+  `none` meters nothing and may have a negative $P$, a heat sink.
+- **Outdoor-controlled baseboard.** Electric heat whose capacity follows the
+  outdoor dry-bulb temperature $T_o$ between two points
+  $(T_\text{low}, Q_\text{low})$ and $(T_\text{high}, Q_\text{high})$:
+  $$
+  Q = f\times\begin{cases}
+  Q_\text{low}, & T_o \le T_\text{low},\\
+  Q_\text{low} + (T_o - T_\text{low})\dfrac{Q_\text{high}-Q_\text{low}}{T_\text{high}-T_\text{low}}, & T_\text{low} < T_o < T_\text{high},\\
+  0, & T_o \ge T_\text{high}.
+  \end{cases}
+  $$ {#eq-baseboard-gain}
+  The fraction $r$ (default 0) is radiant and the rest convective. No
+  thermostat controls it: it is a scheduled gain, not HVAC.
+
+The default sensible heat per person is the correlation of EnergyPlus
+(`InternalHeatGains::InitInternalHeatGains`), held within $[0, M]$:
+
+$$
+\begin{aligned}
+q_s ={}& 6.4611027 + M\,(0.946892 + 2.55737\times10^{-5}M)\\
+&+ T_z\left(7.139322 + M\,(-0.0627909 + 5.89271\times10^{-5}M)\right)\\
+&+ T_z^2\left(-0.198550 + M\,(9.40018\times10^{-4} - 1.49532\times10^{-6}M)\right).
+\end{aligned}
+$$ {#eq-people-sensible}
+
+At $M$ = 120 W it gives 82.7 W at 21 °C, 70.0 W at 23.9 °C and 40.8 W at
+29.4 °C, so occupants of a set-back zone add less sensible and more latent
+heat.
 
 The convective parts enter the zone air as $\dot Q_\text{conv}$
 (@eq-zone-ode). The radiant parts are spread over the zone's surfaces
 (@eq-radiant-gain-flux). The latent parts become a moisture source
 $\dot m_w = Q_l/h_g(T_z)$ in the zone moisture balance (@sec-zone-moisture).
-Electric power is booked whole, whatever leaves the zone.
+
+**Energy and fuel.** Lights' power and each equipment object's whole input
+power, lost heat included, are booked to the interior lighting and interior
+equipment end uses, the equipment on its fuel: electricity, natural gas,
+district heating water, district heating steam, or another fuel (propane,
+fuel oil no. 1 or 2, diesel, gasoline, coal, other fuel 1 or 2, district
+cooling). The summary report has an interior equipment row and a fuel total
+for each of the first four, and groups the rest as *Other Fuels*; submeters
+keep each fuel apart (end use `equipment_<fuel>`). Baseboards are electric
+interior equipment.
+
+**Exterior equipment.** `exterior_equipment` adds no heat to any zone. Its
+power, design level times schedule fraction, is metered on its `fuel` under
+the exterior equipment end use, as EnergyPlus meters `Exterior:FuelEquipment`
+under ExteriorEquipment on its fuel (`ExteriorEnergyUse.cc`): summary rows
+Exterior Equipment (electricity), Exterior Equipment (Gas), (District
+Heating Water), (District Heating Steam) and (Other Fuels), and submeter end
+use `ext_equipment` or `ext_equipment_<fuel>`. Equipment whose subcategory
+contains "exterior light" is booked as exterior lighting (EnergyPlus
+`Exterior:Lights`). EnergyPlus's `Water` fuel type, a volume flow, is not
+modelled.
 
 **Sizing.** On design days, a design day's `internal_gains` mode chooses
 among no gains (`off`, the heating default), design levels at every hour
-(`full`, the cooling default), the normal schedules (`scheduled`), and
-design levels whenever the zone's scheduled gain is non-zero
+(`full`, the cooling default), the normal schedules (`scheduled`), and each
+gain at its design level in the hours its own schedule is above zero
 (`full_when_occupied`) (@sec-sizing).
 
 **Comparison with EnergyPlus.**
 
-- **Model structure.** `People`, `Lights` and `ElectricEquipment` have the
-  same structure (`InternalHeatGains`).
+- **Model structure.** `People` and `Lights` have the structure of their
+  EnergyPlus objects (`InternalHeatGains`). EnergyPlus's five equipment
+  objects compute the same split from the same fractions
+  (`InitInternalHeatGains`) and differ only in their meter, so OpenBSE has
+  one equipment gain with a `fuel`:
+
+  | EnergyPlus object | `fuel` | EnergyPlus meter |
+  |---|---|---|
+  | `ElectricEquipment` | `electricity` | Electricity:InteriorEquipment |
+  | `GasEquipment` | `natural_gas` | NaturalGas:InteriorEquipment |
+  | `HotWaterEquipment` | `district_heating_water` | DistrictHeatingWater:InteriorEquipment |
+  | `SteamEquipment` | `district_heating_steam` | DistrictHeatingSteam:InteriorEquipment |
+  | `OtherEquipment` | its fuel type, or `none` | that fuel's InteriorEquipment, or none |
+
+  The design level is a level, per floor area or per person, as there
+  (`setDesignLevel`); only `none` may be negative, as for `OtherEquipment`.
+  `ZoneBaseboard:OutdoorTemperatureControlled` follows @eq-baseboard-gain,
+  the same branches as `InitInternalHeatGains`, and is metered on
+  Electricity:InteriorEquipment as there.
 - **Fraction conventions.** Lights' and equipment's radiant, latent, lost
   and return-air fractions are each a fraction of the *total*, as in
   EnergyPlus; fractions that add up to more than 1 are a severe error. A
   lights `radiant_fraction` is EnergyPlus's Fraction Radiant + Fraction Visible.
-- **People sensible heat.** EnergyPlus's default sensible heat follows a
-  correlation in activity level and zone air temperature; OpenBSE's fixed
-  fraction does not.
-- **Missing gain types.** Gas, hot-water, steam and other equipment do not
-  exist ([#223](https://github.com/bbrannon4/OpenBSE/issues/223)).
+- **People sensible heat.** The default autocalculated sensible heat
+  (@eq-people-sensible), its limits $[0, M]$ and the latent remainder follow
+  `InitInternalHeatGains`. As there, the zone air temperature is the one at
+  the start of the timestep (EnergyPlus's mean air temperature before the
+  zone solve), and design days use the same correlation. EnergyPlus requires
+  an activity level schedule; OpenBSE requires a constant `activity_level`
+  for each people object.
+- **Defaults and checks.** Equipment's default radiant fraction is 0.3
+  (EnergyPlus: 0). Per-person equipment in a zone without people is a
+  severe error; EnergyPlus warns and uses 0 W.
+- **Not modelled.** The carbon dioxide generation rate of `GasEquipment`
+  and `OtherEquipment`: OpenBSE has no zone CO₂ balance outside the airflow
+  network's species, where a zone's `species_generation` can carry it.
+  EMS overrides and demand limiting of equipment are not modelled.
+- **Baseboard outdoor temperature.** The site dry-bulb temperature;
+  EnergyPlus uses the outdoor temperature at the zone's centroid height,
+  which differs by about 0.1 K per 15 m.
+
+## Daylighting {#sec-daylighting}
+
+**Source:** `openbse-envelope/src/daylighting.rs`; input
+`daylighting_controls`.
+
+A zone's `daylighting_controls` dim its lights by the daylight at one or more
+reference points, by the split-flux method of EnergyPlus
+`Daylighting:Controls` (`DaylightingManager.cc`, after DOE-2.1E). Daylight
+enters through the zone's exterior windows and skylights; each needs
+vertices.
+
+**Daylight factors.** For each hour of the day, with the sun where it is at
+the end of that hour, the illuminance at each reference point from each window
+is found for four standard skies $k$ (CIE clear, clear turbid, intermediate,
+overcast) and for the sun, and divided by the exterior horizontal illuminance
+that sky or the sun gives. The sky luminance $L_k(\theta,\varphi)$ in
+azimuth $\theta$ and altitude $\varphi$ is relative to the zenith luminance
+(E+ `DayltgSkyLuminance`); the exterior horizontal illuminance of each sky,
+$E_{h,k}=\int L_k\sin\varphi\,d\Omega$, is integrated over 18 × 8 sky
+elements and the sun's is $\sin\varphi_s$ per unit beam illuminance.
+
+- *Direct.* The window is divided into $n_x \times n_y$ elements,
+  $n = 1 + \lfloor 4w/d \rfloor$ each way (at most 40), where $w$ is the
+  edge length and $d$ the distance of the point from the window plane. An
+  element of area $\Delta A$ at distance $r$ in direction $\hat u$ from the
+  point, at incidence $\beta$ on the glass, adds
+  $$
+  \Delta E_k = L_k(\hat u)\,\frac{\Delta A\cos\beta}{r^2}\,u_z\,\tau_v(\cos\beta)
+  $$ {#eq-daylight-direct}
+  for elements above the horizon of the work plane, where $\tau_v$ is the
+  glazing's beam visible transmittance (@sec-window-optics). The sun adds
+  $\sin\varphi_s\,\tau_v(\cos\beta_s)$ when the ray from the point to the sun
+  passes through the window.
+- *Internally reflected.* The luminous flux through the window from the sky
+  and sun above the horizon goes first to the floor and lower walls, $\Phi_\downarrow$;
+  the flux from the ground (reflectance $\rho_g$, a uniform luminance
+  $\rho_g E_h/\pi$) goes to the ceiling and upper walls, $\Phi_\uparrow$
+  (16 × 10 elements over the hemisphere the window sees). The beam on the
+  window goes down. After inter-reflection the illuminance, the same at every
+  point, is
+  $$
+  E_\text{int} = \frac{(\Phi_\downarrow\rho_{fw} + \Phi_\uparrow\rho_{cw})\,A_w}{A_\text{tot}\,(1-\bar\rho)}
+  $$ {#eq-daylight-split-flux}
+  where $\Phi$ is per unit window area, $A_\text{tot}$ and $\bar\rho$ are the
+  area and area-weighted visible reflectance of the zone's walls, floors,
+  roofs, windows and doors (internal mass is left out), and $\rho_{fw}$,
+  $\rho_{cw}$ are the reflectances of the floor and lower walls and of the
+  ceiling and upper walls, leaving out the window's own base surface, with the
+  walls split at the window's centre height
+  (E+ `DayltgAveInteriorReflectance`). An opaque surface's reflectance is one
+  minus its inside layer's visible absorptance; a window's is the glazing's
+  diffuse visible back reflectance.
+
+**Timestep illuminance.** The exterior horizontal illuminance from the sky,
+$E_\text{sky}$, and from the beam, $E_\text{sun}$, come from the weather's
+diffuse horizontal and beam normal irradiance and the Perez (1990) luminous
+efficacies, with the sky clearness $\varepsilon$ and brightness $\Delta$
+(E+ `DayltgLuminousEfficacy`). The sky is a mix of two standard skies,
+weight $w$ on the first: clear and clear turbid for $\varepsilon > 3$,
+$w = \min(1, (\varepsilon-3)/3)$; clear turbid and intermediate for
+$\varepsilon > 1.2$, $w = (\varepsilon-1.2)/1.8$; otherwise intermediate and
+overcast, $w = \min(1,\max((\varepsilon-1)/0.2, (\Delta-0.05)/0.4))$. With the
+daylight factors $D$ interpolated between the hour before and this hour
+(weight on this hour: the fraction of the hour gone),
+$$
+E = D_\text{sun}E_\text{sun} + \frac{E_\text{sky}\,\bigl(D_1 w E_{h,1} + D_2(1-w)E_{h,2}\bigr)}{w E_{h,1} + (1-w)E_{h,2}}
+$$ {#eq-daylight-illuminance}
+summed over the windows (E+ `DayltgInteriorIllum`).
+
+**Lighting control.** At each reference point with setpoint $E_\text{set}$,
+the electric light needed is $f_L = \max(0, (E_\text{set}-E)/E_\text{set})$.
+Continuous dimming gives the power fraction
+$$
+f_P = \begin{cases}
+f_{P,\min} & f_L \le f_{L,\min}\\
+\dfrac{f_L + (1-f_L)f_{P,\min} - f_{L,\min}}{1-f_{L,\min}} & f_{L,\min} < f_L < 1\\
+1 & f_L \ge 1
+\end{cases}
+$$ {#eq-daylight-dimming}
+`continuous_off` sets $f_P = 0$ at and below the minimum light output, and
+`stepped` control with $n$ steps $f_P = \min(1, (\lfloor n f_L\rfloor + 1)/n)$
+(1 in the dark, 0 above the setpoint). The zone's lights are multiplied by
+$f_\text{day} = \sum_i f_{P,i}\,s_i + (1 - \sum_i s_i)$, where $s_i$ is the
+share of the lights point $i$ controls (E+ `DayltgElecLightingControl`), in the
+heat gain and the lighting meters alike, during sizing as during the run.
+Outputs `zone:daylight_illuminance_N` and
+`zone:daylighting_power_multiplier` report $E$ and $f_\text{day}$.
+
+**EnergyPlus comparison.** For a zone with 16 skylights and two reference
+points (Denver), OpenBSE's daylight factors for the clear and overcast skies
+agree with E+'s `eplusout.dfs` to 0.1 % at both points, and the intermediate
+sky to 1 %. The exterior illuminances, clearness and brightness agree to
+0.1 %. E+ computes the daylight factors on its shading-calculation days with
+the sun's declination and equation of time averaged over the shading period
+(20 days by default), so on a given day its sun can sit a few degrees from the
+actual sun; OpenBSE computes them each day with that day's sun, and the hours
+when a sun patch falls on a reference point differ accordingly.
+
+## Known limitations: daylighting {#sec-daylighting-limitations}
+
+- Split flux only: no DElight or illuminance maps, no glare index.
+- Exterior and interior obstructions (shading surfaces, overhangs, other
+  parts of the building) do not block or reflect daylight; shades and blinds
+  are taken as open.
+- Daylight from windows in adjacent zones through interior windows is not
+  counted; light wells, tubular daylighting devices and light shelves are not
+  modelled.
+- A window is taken as the parallelogram on three of its vertices (a
+  triangle as half of it), as E+ does; window frames and dividers are left
+  out of the interior reflectance.
+- No availability schedule (always available) and no manual stepped control
+  probability.
+- Reference points are not checked to lie inside their zone.
 
 ## Ground heat transfer {#sec-ground-ht}
 
@@ -1293,9 +1783,8 @@ polygon areas. The volume, when not given, follows EnergyPlus
 
 ## Known limitations: gains, ground and geometry {#sec-gains-limitations}
 
-- [#223](https://github.com/bbrannon4/OpenBSE/issues/223): fixed people
-  sensible fraction; only electric equipment; `full_when_occupied`
-  granularity.
+- The summary report totals propane, fuel oils, diesel, gasoline, coal,
+  other fuels 1 and 2 and district cooling together as *Other Fuels*.
 - No multidimensional ground heat transfer model.
 
 ## Zone air heat balance {#sec-zone-air-hb}
@@ -1325,7 +1814,6 @@ terms are assembled from the parts of this chapter:
   - the HVAC-related gains of @sec-zone-time;
   - exhaust-fan motor heat;
   - the gap air returned by a window shade (@sec-shades);
-  - the residual absorbed-inward window solar (@sec-window-hb);
   - transmitted solar sent to the air when a zone has no surface
     distribution (@sec-interior-solar).
 - **HVAC**, in one of three forms:

@@ -110,6 +110,7 @@ people:
   - name: Office People
     zones: [Office]
     count: 30
+    activity_level: 120.0
     schedule: OccupiedHours
 
 lights:

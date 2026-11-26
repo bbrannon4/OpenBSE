@@ -104,7 +104,9 @@ pub struct SurfaceInput {
     /// Matches EnergyPlus `Construction:FfactorGroundFloor` PerimeterExposed.
     #[serde(default)]
     pub exposed_perimeter: Option<f64>,
-    /// Window height [m] for the ISO 15099 interior convection model. If not
+    /// Height of the surface along its slope [m]: the window height for the
+    /// ISO 15099 interior convection model, and (times the sine of the tilt)
+    /// a large opening's vertical extent in the airflow network. If not
     /// provided, taken from the vertices, or sqrt(area) without them.
     #[serde(default)]
     pub height: Option<f64>,
@@ -141,6 +143,54 @@ impl SurfaceInput {
             }
             _ => square(),
         }
+    }
+
+    /// Vertical extent of the surface [m]: the input `height` times the sine
+    /// of the tilt, else the vertices' z-range, else a square of the
+    /// surface's area tilted to its slope (sqrt(area) × sin(tilt)).
+    pub fn vertical_extent(&self) -> f64 {
+        let sin_tilt = self.tilt.to_radians().sin().abs();
+        if let Some(h) = self.height {
+            return h * sin_tilt;
+        }
+        match &self.vertices {
+            Some(v) if v.len() >= 3 => {
+                let (lo, hi) = v
+                    .iter()
+                    .fold((f64::MAX, f64::MIN), |(l, h), p| (l.min(p.z), h.max(p.z)));
+                hi - lo
+            }
+            _ => self.area.max(0.0).sqrt() * sin_tilt,
+        }
+    }
+
+    /// Gross area [m²] and perimeter [m] of this surface as a base surface for
+    /// TARP outside convection, E+ `InitExtConvCoeff`: perimeter
+    /// 2·(A/H + H) from the gross area A and the height H E+ gives the surface
+    /// (`ProcessSurfaceVertices`): the length from its first vertex to its
+    /// second, or sqrt(A) for a polygon of more than four sides that isn't
+    /// that rectangle. Without vertices, H is the input `height`, else sqrt(A).
+    pub fn sparrow_face(&self) -> (f64, f64) {
+        let area = surface_gross_area(self);
+        let height = match &self.vertices {
+            Some(v) if v.len() >= 3 => {
+                let dist = |a: &Point3D, b: &Point3D| {
+                    ((a.x - b.x).powi(2) + (a.y - b.y).powi(2) + (a.z - b.z).powi(2)).sqrt()
+                };
+                let h = dist(&v[1], &v[0]);
+                let w = dist(&v[2], &v[1]);
+                if v.len() > 4 && (h * w - area).abs() > 0.001 {
+                    area.sqrt()
+                } else {
+                    h
+                }
+            }
+            _ => self.height.unwrap_or(area.sqrt()),
+        };
+        if area <= 0.0 || height <= 0.0 {
+            return (area, 0.0);
+        }
+        (area, 2.0 * (area / height + height))
     }
 
     /// Resolve geometry from vertices if present.
@@ -575,9 +625,6 @@ pub struct SurfaceState {
     pub cos_incidence: f64,
     /// Diffuse component of transmitted solar [W]
     pub transmitted_solar_diffuse: f64,
-    /// Solar absorbed by window glazing that flows into the zone [W]
-    /// (fraction of glass absorptance × incident; adds to zone heat balance)
-    pub absorbed_solar_inside_window: f64,
     /// Outside solar absorptance
     pub solar_absorptance_outside: f64,
     /// Outside thermal absorptance (emissivity) for exterior LW radiation
@@ -590,65 +637,21 @@ pub struct SurfaceState {
     pub roughness: crate::material::Roughness,
     /// Construction U-factor [W/(m²·K)] (used for windows and simple conduction)
     pub u_factor: f64,
-    /// Glass-only conductance [W/(m²·K)] — U-factor with standard films removed.
-    /// Used for windows when applying dynamic exterior/interior film coefficients.
-    /// Pre-computed as: 1/(1/U_overall - 1/h_e_std - 1/h_i_std)
-    pub u_glass: f64,
-    /// Window SHGC
+    /// Window SHGC: the rated value of a simple glazing system, or the
+    /// nominal value computed for one described by its panes.
     pub shgc: f64,
-    /// Ratio τ_sol / SHGC: fraction of total window solar gain (SHGC × I)
-    /// that is directly transmitted to interior surfaces. The remainder
-    /// (1 − ratio) × SHGC × I is absorbed by the glass and re-emitted
-    /// inward. Computed from E+ SimpleGlazingSystem correlations or from
-    /// per-pane optical properties when available.
-    pub solar_transmittance_ratio: f64,
-    /// Glass extinction coefficient × thickness per pane (K·d) for Fresnel
-    /// angular SHGC model. Pre-computed from per-pane glass properties or
-    /// estimated from SHGC via the E+ SimpleGlazingSystem correlation.
-    pub glass_kd: f64,
-    /// Inward-flowing fraction of absorbed solar (N_i).
-    /// Used in SHGC(θ) = τ(θ) + N_i × α(θ) angular modifier computation.
-    pub glass_ni: f64,
-    /// Effective refractive index for the Fresnel angular SHGC model.
-    /// Derived from per-pane τ and ρ to match both transmittance and reflectance
-    /// at normal incidence. Falls back to 1.526 (soda-lime glass) when per-pane
-    /// properties are not provided.
-    pub glass_n: f64,
-    /// Panes of the Fresnel model (1 or 2)
-    pub glass_panes: u32,
-    /// E+ SimpleGlazingSystem angular model (LBNL-2804E curves + layer properties).
-    /// Present for SGS windows (no per-pane optical data); None for detailed windows.
-    pub sgs_model: Option<crate::solar::SgsAngularModel>,
-    // ── First-principles window gap thermal model ─────────────────────
-    /// Rated glass-only conductance [W/(m²·K)] — NFRC-derived value.
-    /// Used as an upper cap for the dynamic gap model to prevent the
-    /// window from becoming more conductive than its NFRC rating at
-    /// extreme temperatures (radiation through the gap scales as T³).
-    /// Equal to u_glass when no gap model is used.
-    pub u_glass_rated: f64,
-    /// Gap width [m] for dynamic ISO 15099 window thermal model.
-    /// When > 0, u_glass is recomputed each timestep from pane + gap
-    /// properties instead of using the fixed NFRC film-stripped value.
-    pub gap_width: f64,
-    /// Pane thickness [m] for gap thermal model.
-    pub pane_thickness: f64,
-    /// Pane thermal conductivity [W/(m·K)] for gap thermal model.
-    pub pane_conductivity: f64,
-    /// Glass emissivity for gap inter-pane radiation exchange.
-    pub gap_emissivity: f64,
-    /// Glass emissivity for interior and exterior LW radiation exchange.
-    /// Defaults to 0.84 (uncoated soda-lime glass) when not specified.
-    pub glass_emissivity: f64,
-    /// Hemispherical diffuse back-transmittance of window glazing system.
-    /// Used for interior cavity solar back-out calculation. Represents the
-    /// fraction of diffuse interior-reflected solar that transmits back
-    /// through the window to the exterior.
-    pub diffuse_back_transmittance: f64,
-    /// Hemispherical diffuse back-absorptance of window glazing system.
-    /// α_back = 1 - τ_back - ρ_back. The outward-flowing portion
-    /// (α_back × (1 - N_i)) also exits the zone and must be included
-    /// in the cavity back-out correction.
-    pub diffuse_back_absorptance: f64,
+    /// Glazing system of a window (`None` for opaque surfaces).
+    pub glazing: Option<std::sync::Arc<crate::glazing::Glazing>>,
+    /// Simple glazing equivalent of the window+blind assembly rating
+    /// (`blind_shgc`, `blind_u_factor`), used while that blind is deployed.
+    pub blind_glazing: Option<std::sync::Arc<crate::glazing::Glazing>>,
+    /// Face temperatures of the active glazing [°C], outer face first; with
+    /// a shade deployed they are followed by the shade and the gap air.
+    /// Empty until the first window solve.
+    pub window_faces: Vec<f64>,
+    /// Solar absorbed by each glass layer [W], from outdoors and from the
+    /// room's reflected diffuse.
+    pub window_layer_solar: [f64; crate::glazing::MAX_LAYERS],
     /// Cosine of tilt angle
     pub cos_tilt: f64,
     /// Sine of tilt angle
@@ -656,6 +659,11 @@ pub struct SurfaceState {
     /// Centroid height above ground [m] for wind speed profile adjustment.
     /// Estimated from zone geometry when vertex data is not available.
     pub centroid_height: f64,
+    /// Gross area [m²] and perimeter [m] of the face the outside air flows
+    /// over, for TARP's Sparrow forced convection: the surface's own, or its
+    /// parent's for a window or door (E+ uses the base surface, as a
+    /// subsurface starts no new boundary layer).
+    pub sparrow_face: (f64, f64),
     /// Diffuse sky shading ratio [0.0-1.0]: fraction of isotropic sky diffuse
     /// radiation that reaches this surface, accounting for obstruction by
     /// shading surfaces (overhangs, fins, detached shading).
@@ -684,20 +692,12 @@ pub struct SurfaceState {
     pub q_cond_outside: f64,
 
     // ── Dynamic blind state (#104) ────────────────────────────────────────
-    /// True when a shading control is configured for this window. Distinguishes
-    /// "no blind" from a legitimately configured blackout blind whose
-    /// `blind_shgc` is 0.0 (#106).
+    /// True when a shading control is configured for this window, a blackout
+    /// blind (`blind_shgc` 0) included (#106).
     pub blind_configured: bool,
     /// True when interior blind/shade is currently deployed for this window.
     /// Updated each timestep by the blind control logic before solar gains are computed.
     pub blind_deployed: bool,
-    /// SHGC of the window+blind assembly when the blind is deployed.
-    /// Only meaningful when `blind_configured` is true; 0.0 is a valid value
-    /// (fully opaque blackout blind).
-    pub blind_shgc: f64,
-    /// U-factor [W/(m²·K)] of the window+blind assembly when deployed.
-    /// Zero falls back to the base window U-factor.
-    pub blind_u_factor: f64,
     /// Physical interior shade layer (#144), copied from the shading control.
     /// When present and deployed, the window is solved as glass + shade.
     pub shade: Option<crate::material::InteriorShade>,
@@ -705,15 +705,56 @@ pub struct SurfaceState {
     /// shade layer is down, when `temp_inside` is the shade (the face the
     /// room sees) and this is the glass behind it.
     pub temp_glass_inside: f64,
+    /// Linearised conductance from an unshaded window's inner glass face to
+    /// the outdoors [W/(m²·K)], from its last solve; 0 for opaque surfaces
+    /// and for windows behind a deployed shade.
+    pub window_u_out: f64,
     /// Solar absorbed by the deployed shade layer [W].
     pub shade_absorbed_solar: f64,
-    /// Solar reflected by the deployed shade and absorbed on its way back
-    /// through the glass [W].
-    pub glass_reflected_absorbed: f64,
 }
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn vertical_extent_from_height_then_vertices_then_area() {
+        let mut door = iz("d", "a", "b", 4.0, 180.0, "g");
+        assert!(
+            (door.vertical_extent() - 2.0).abs() < 1e-12,
+            "square of the area"
+        );
+        door.vertices = Some(vec![
+            Point3D {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+            },
+            Point3D {
+                x: 0.9,
+                y: 0.0,
+                z: 0.0,
+            },
+            Point3D {
+                x: 0.9,
+                y: 0.0,
+                z: 2.1,
+            },
+            Point3D {
+                x: 0.0,
+                y: 0.0,
+                z: 2.1,
+            },
+        ]);
+        assert!((door.vertical_extent() - 2.1).abs() < 1e-12);
+        door.height = Some(2.0);
+        assert!((door.vertical_extent() - 2.0).abs() < 1e-12);
+        let mut roof = iz("r", "a", "b", 4.0, 0.0, "g");
+        roof.tilt = 0.0;
+        assert!(
+            roof.vertical_extent().abs() < 1e-12,
+            "a flat surface has no extent"
+        );
+    }
+
     #[test]
     fn window_height_comes_from_input_then_vertices_then_area() {
         let mut w = iz("w", "a", "b", 6.0, 180.0, "g");
@@ -774,6 +815,44 @@ mod tests {
             height: None,
             airflow: None,
         }
+    }
+
+    #[test]
+    fn sparrow_face_follows_eplus_height_rule() {
+        let p = |x, y, z| Point3D::new(x, y, z);
+        // A 29.27 m by 6.096 m wall in upper-left, counter-clockwise order:
+        // H is the first edge, so P is the rectangle's own perimeter.
+        let mut wall = iz("w", "a", "b", 0.0, 270.0, "c");
+        wall.vertices = Some(vec![
+            p(0.0, 35.27, 6.096),
+            p(0.0, 35.27, 0.0),
+            p(0.0, 6.0, 0.0),
+            p(0.0, 6.0, 6.096),
+        ]);
+        let (a, per) = wall.sparrow_face();
+        assert!((a - 29.27 * 6.096).abs() < 1e-9);
+        assert!((per - 2.0 * (29.27 + 6.096)).abs() < 1e-9);
+        // An eight-sided roof that is not its first two edges' rectangle is
+        // taken as a square of its area (E+ `ProcessSurfaceVertices`).
+        let mut roof = iz("r", "a", "b", 0.0, 0.0, "c");
+        roof.vertices = Some(vec![
+            p(25.135, 0.0, 6.096),
+            p(25.135, -3.0, 6.096),
+            p(29.135, -3.0, 6.096),
+            p(29.135, 0.0, 6.096),
+            p(54.27, 0.0, 6.096),
+            p(54.27, 29.27, 6.096),
+            p(0.0, 29.27, 6.096),
+            p(0.0, 0.0, 6.096),
+        ]);
+        let (a, per) = roof.sparrow_face();
+        assert!((a - (54.27 * 29.27 + 12.0)).abs() < 1e-6);
+        assert!((per - 4.0 * a.sqrt()).abs() < 1e-9);
+        // Without vertices: the input height, else a square.
+        let mut plain = iz("x", "a", "b", 20.0, 0.0, "c");
+        assert!((plain.sparrow_face().1 - 4.0 * 20.0_f64.sqrt()).abs() < 1e-12);
+        plain.height = Some(2.0);
+        assert!((plain.sparrow_face().1 - 2.0 * (10.0 + 2.0)).abs() < 1e-12);
     }
 
     #[test]

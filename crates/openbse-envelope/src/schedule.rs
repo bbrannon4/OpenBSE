@@ -391,6 +391,13 @@ impl ScheduleInput {
     ///
     /// `day_of_week`: 1=Mon..7=Sun, **8=Holiday**.
     pub fn fraction(&self, hour: u32, day_of_week: u32) -> f64 {
+        self.value(hour, day_of_week).clamp(0.0, 1.0)
+    }
+
+    /// The schedule's value for a given hour (1-24) and day type, unclamped:
+    /// a temperature schedule (a thermostat setpoint) is read with this, a
+    /// fraction schedule with [`Self::fraction`]. Day-type resolution as there.
+    pub fn value(&self, hour: u32, day_of_week: u32) -> f64 {
         let idx = ((hour as usize).saturating_sub(1)).min(23);
         let values = match day_of_week {
             1 => self.monday.as_ref().unwrap_or(&self.weekday),
@@ -422,20 +429,20 @@ impl ScheduleInput {
             }
             _ => &self.weekday,
         };
-
-        if idx < values.len() {
-            values[idx].clamp(0.0, 1.0)
-        } else if !values.is_empty() {
-            values.last().copied().unwrap_or(1.0).clamp(0.0, 1.0)
-        } else {
-            1.0
-        }
+        values.get(idx).or(values.last()).copied().unwrap_or(1.0)
     }
 
     /// Seasonal fraction: like [`Self::fraction`] but resolves `seasons` by
     /// day-of-year (1–365) first, falling back to the date-unaware day arrays
     /// when no period matches (or no seasons are defined).
     pub fn fraction_doy(&self, hour: u32, day_of_week: u32, day_of_year: u32) -> f64 {
+        self.value_doy(hour, day_of_week, day_of_year)
+            .clamp(0.0, 1.0)
+    }
+
+    /// Seasonal value: like [`Self::value`] but resolves `seasons` by
+    /// day-of-year (1–365) first, as [`Self::fraction_doy`] does.
+    pub fn value_doy(&self, hour: u32, day_of_week: u32, day_of_year: u32) -> f64 {
         if let Some(seasons) = &self.seasons {
             for s in seasons {
                 let start = day_of_year_from_md(s.start_month, s.start_day);
@@ -454,15 +461,11 @@ impl ScheduleInput {
                         &s.weekday
                     };
                     let idx = ((hour as usize).saturating_sub(1)).min(23);
-                    return if idx < values.len() {
-                        values[idx].clamp(0.0, 1.0)
-                    } else {
-                        values.last().copied().unwrap_or(1.0).clamp(0.0, 1.0)
-                    };
+                    return values.get(idx).or(values.last()).copied().unwrap_or(1.0);
                 }
             }
         }
-        self.fraction(hour, day_of_week)
+        self.value(hour, day_of_week)
     }
 
     /// Create an "always on" schedule (fraction = 1.0 at all times).
@@ -504,18 +507,188 @@ impl ScheduleInput {
     }
 }
 
+/// A daylight-saving start or end date (E+ `RunPeriodControl:DaylightSavingTime`):
+/// a month and day, the nth weekday of a month, or its last weekday.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DstDate {
+    /// A fixed date.
+    MonthDay { month: u32, day: u32 },
+    /// The `nth` (1–5) `weekday` (1 = Monday … 7 = Sunday) of `month`.
+    NthWeekday { nth: u32, weekday: u32, month: u32 },
+    /// The last `weekday` of `month`.
+    LastWeekday { weekday: u32, month: u32 },
+}
+
+const MONTH_NAMES: [&str; 12] = [
+    "january",
+    "february",
+    "march",
+    "april",
+    "may",
+    "june",
+    "july",
+    "august",
+    "september",
+    "october",
+    "november",
+    "december",
+];
+const WEEKDAY_NAMES: [&str; 7] = [
+    "monday",
+    "tuesday",
+    "wednesday",
+    "thursday",
+    "friday",
+    "saturday",
+    "sunday",
+];
+const MONTH_DAYS: [u32; 12] = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+
+impl DstDate {
+    /// Parse an E+ date string: `2nd Sunday in March`, `Last Sunday in
+    /// October`, `3/10` or `March 10` (`General::ProcessDateString`).
+    pub fn parse(text: &str) -> Result<Self, String> {
+        let lower = text.trim().to_lowercase();
+        let month_of = |w: &str| -> Option<u32> {
+            MONTH_NAMES
+                .iter()
+                .position(|m| *m == w || (w.len() >= 3 && m.starts_with(w)))
+                .map(|i| i as u32 + 1)
+        };
+        let weekday_of = |w: &str| -> Option<u32> {
+            WEEKDAY_NAMES
+                .iter()
+                .position(|d| *d == w || (w.len() >= 3 && d.starts_with(w)))
+                .map(|i| i as u32 + 1)
+        };
+        let bad = || format!("unrecognised date '{text}' (e.g. '2nd Sunday in March', '3/10')");
+        let words: Vec<&str> = lower.split_whitespace().collect();
+        let date = match words.as_slice() {
+            [n, wd, "in", m] => {
+                let weekday = weekday_of(wd).ok_or_else(bad)?;
+                let month = month_of(m).ok_or_else(bad)?;
+                if *n == "last" {
+                    DstDate::LastWeekday { weekday, month }
+                } else {
+                    let digits: String = n.chars().take_while(|c| c.is_ascii_digit()).collect();
+                    let nth: u32 = digits.parse().map_err(|_| bad())?;
+                    if !(1..=5).contains(&nth) {
+                        return Err(bad());
+                    }
+                    DstDate::NthWeekday {
+                        nth,
+                        weekday,
+                        month,
+                    }
+                }
+            }
+            [md] if md.contains('/') => {
+                let mut it = md.split('/');
+                let month: u32 = it.next().and_then(|v| v.parse().ok()).ok_or_else(bad)?;
+                let day: u32 = it.next().and_then(|v| v.parse().ok()).ok_or_else(bad)?;
+                DstDate::MonthDay { month, day }
+            }
+            [m, d] => DstDate::MonthDay {
+                month: month_of(m).ok_or_else(bad)?,
+                day: d.parse().map_err(|_| bad())?,
+            },
+            _ => return Err(bad()),
+        };
+        if let DstDate::MonthDay { month, day } = date {
+            if !(1..=12).contains(&month) || day == 0 || day > MONTH_DAYS[month as usize - 1] {
+                return Err(bad());
+            }
+        }
+        Ok(date)
+    }
+
+    /// Day of year (1–365) of this date in the run year, whose 1 January is
+    /// weekday `jan1_dow` (`WeatherManager::SetDSTDateRanges`), or `None` when
+    /// the month has no such nth weekday (E+ "not enough Nths", an error).
+    pub fn day_of_year(&self, jan1_dow: u32, leap_year: bool) -> Option<u32> {
+        let month_start = |month: u32| -> u32 {
+            let mut doy = 1;
+            for m in 1..month {
+                doy += MONTH_DAYS[m as usize - 1];
+            }
+            doy
+        };
+        let weekday_on = |month: u32, day: u32| day_of_week(month, day, jan1_dow, leap_year);
+        match *self {
+            DstDate::MonthDay { month, day } => Some(month_start(month) + day - 1),
+            DstDate::NthWeekday {
+                nth,
+                weekday,
+                month,
+            } => {
+                let first = (weekday + 7 - weekday_on(month, 1)) % 7 + 1;
+                let day = first + 7 * (nth - 1);
+                (day <= MONTH_DAYS[month as usize - 1]).then(|| month_start(month) + day - 1)
+            }
+            DstDate::LastWeekday { weekday, month } => {
+                let last = MONTH_DAYS[month as usize - 1];
+                let back = (weekday_on(month, last) + 7 - weekday) % 7;
+                Some(month_start(month) + last - back - 1)
+            }
+        }
+    }
+}
+
+/// Whether day of year `doy` is in the daylight-saving period from `start` to
+/// `end`, both inclusive, as E+ marks whole days (`SetDSTDateRanges`); a
+/// period that wraps the year end (southern hemisphere) is allowed.
+pub fn in_daylight_saving(doy: u32, start: u32, end: u32) -> bool {
+    if end >= start {
+        doy >= start && doy <= end
+    } else {
+        doy >= start || doy <= end
+    }
+}
+
+/// The one-hour schedule shift in force this timestep: on a daylight-saving
+/// day every schedule is read one clock hour later, and its hour 24 is the
+/// next day's hour 1 with that day's type and date
+/// (`ScheduleDetailed::getHrTsVal`, `thisHr = hr + DSTIndicator`).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct DaylightSavingShift {
+    pub active: bool,
+    pub next_day_type: u32,
+    pub next_day_of_year: u32,
+}
+
 /// A schedule lookup table built from parsed schedule inputs.
 ///
 /// Provides O(1) lookup of schedule fractions by name + time.
 #[derive(Debug, Clone, Default)]
 pub struct ScheduleManager {
     schedules: std::collections::HashMap<String, ScheduleInput>,
+    /// Daylight-saving shift for the current timestep (off on design days).
+    shift: DaylightSavingShift,
 }
 
 impl ScheduleManager {
     pub fn new() -> Self {
         Self {
             schedules: std::collections::HashMap::new(),
+            shift: DaylightSavingShift::default(),
+        }
+    }
+
+    /// Set the daylight-saving shift for the timesteps that follow.
+    pub fn set_daylight_saving(&mut self, shift: DaylightSavingShift) {
+        self.shift = shift;
+    }
+
+    /// The (hour, day type, day of year) a schedule is read at for clock
+    /// `hour` (1–24) on day type `dow` and day `doy`, after any shift.
+    fn shifted(&self, hour: u32, dow: u32, doy: u32) -> (u32, u32, u32) {
+        if !self.shift.active {
+            return (hour, dow, doy);
+        }
+        if hour >= 24 {
+            (1, self.shift.next_day_type, self.shift.next_day_of_year)
+        } else {
+            (hour + 1, dow, doy)
         }
     }
 
@@ -546,6 +719,7 @@ impl ScheduleManager {
     /// Look up a schedule fraction. `validate_model` rejects a reference to an
     /// undefined schedule, so the 1.0 here is reached only by callers that skip it.
     pub fn fraction(&self, name: &str, hour: u32, day_of_week: u32) -> f64 {
+        let (hour, day_of_week, _) = self.shifted(hour, day_of_week, 0);
         match self.schedules.get(name) {
             Some(sched) => sched.fraction(hour, day_of_week),
             None => 1.0,
@@ -557,10 +731,26 @@ impl ScheduleManager {
     /// for non-seasonal schedules. Returns 1.0 if the schedule is not found (see
     /// [`Self::fraction`]).
     pub fn fraction_doy(&self, name: &str, hour: u32, day_of_week: u32, day_of_year: u32) -> f64 {
+        let (hour, day_of_week, day_of_year) = self.shifted(hour, day_of_week, day_of_year);
         match self.schedules.get(name) {
             Some(sched) => sched.fraction_doy(hour, day_of_week, day_of_year),
             None => 1.0,
         }
+    }
+
+    /// Look up a schedule's unclamped value (a temperature schedule), with
+    /// day-of-year awareness. `None` if the schedule is not defined.
+    pub fn value_doy(
+        &self,
+        name: &str,
+        hour: u32,
+        day_of_week: u32,
+        day_of_year: u32,
+    ) -> Option<f64> {
+        let (hour, day_of_week, day_of_year) = self.shifted(hour, day_of_week, day_of_year);
+        self.schedules
+            .get(name)
+            .map(|sched| sched.value_doy(hour, day_of_week, day_of_year))
     }
 }
 
@@ -586,6 +776,23 @@ pub fn day_of_week(month: u32, day: u32, jan1_dow: u32, leap_year: bool) -> u32 
 
 #[cfg(test)]
 mod tests {
+    /// A setpoint schedule's values are temperatures: `value` reads them as
+    /// given, by day type, where `fraction` clamps to [0, 1].
+    #[test]
+    fn value_reads_a_temperature_schedule_unclamped() {
+        let mut s = ScheduleInput::always_on("SP");
+        s.weekday = vec![21.1; 24];
+        s.weekday[0] = 15.6;
+        s.holiday = Some(vec![15.6; 24]);
+        assert_eq!(s.value(1, 3), 15.6);
+        assert_eq!(s.value(12, 3), 21.1);
+        assert_eq!(s.value(12, 8), 15.6);
+        assert_eq!(s.fraction(12, 3), 1.0);
+        let mgr = ScheduleManager::from_inputs(vec![s]);
+        assert_eq!(mgr.value_doy("SP", 12, 3, 100), Some(21.1));
+        assert_eq!(mgr.value_doy("missing", 12, 3, 100), None);
+    }
+
     use super::*;
 
     #[test]
@@ -722,6 +929,58 @@ mod tests {
         assert_eq!(s.fraction(3, 2), 0.0); // Weekday 2am-3am
         assert_eq!(s.fraction(11, 2), 1.0); // Weekday 10am-11am
         assert_eq!(s.fraction(12, 6), 0.7); // Weekend 11am-12pm
+    }
+
+    #[test]
+    fn daylight_saving_dates_follow_e_plus_rules() {
+        // A year whose 1 January is a Sunday (Denver TMY3, the DOE IDFs):
+        // 2nd Sunday in March = 12 March, 1st Sunday in November = 5 November,
+        // as E+ reports for LargeOffice.
+        let start = DstDate::parse("2nd Sunday in March").unwrap();
+        let end = DstDate::parse("1st Sunday in November").unwrap();
+        assert_eq!(start.day_of_year(7, false), Some(31 + 28 + 12));
+        assert_eq!(end.day_of_year(7, false), Some(304 + 5));
+        let last = DstDate::parse("Last Sunday in October").unwrap();
+        assert_eq!(last.day_of_year(7, false), Some(273 + 29));
+        assert_eq!(
+            DstDate::parse("3/10").unwrap().day_of_year(7, false),
+            Some(69)
+        );
+        assert_eq!(
+            DstDate::parse("March 10").unwrap().day_of_year(1, false),
+            Some(69)
+        );
+        // February of a Sunday-start year has four Sundays: no 5th.
+        let fifth = DstDate::parse("5th Sunday in February").unwrap();
+        assert_eq!(fifth.day_of_year(7, false), None);
+        assert!(DstDate::parse("Sometime in Spring").is_err());
+        assert!(DstDate::parse("2/30").is_err());
+        assert!(in_daylight_saving(200, 71, 309));
+        assert!(!in_daylight_saving(310, 71, 309));
+        // Southern-hemisphere period wraps the year end.
+        assert!(in_daylight_saving(10, 300, 90) && !in_daylight_saving(200, 300, 90));
+    }
+
+    /// On a DST day each lookup reads the next clock hour; hour 24 reads the
+    /// next day's hour 1 with that day's type (E+ getHrTsVal).
+    #[test]
+    fn daylight_saving_shifts_lookups_one_hour() {
+        let mut sched = ScheduleInput::always_on("occ");
+        sched.weekday = (1..=24).map(|h| h as f64 / 100.0).collect();
+        sched.weekend = Some(vec![0.5; 24]);
+        let mut mgr = ScheduleManager::from_inputs(vec![sched]);
+        assert_eq!(mgr.fraction("occ", 8, 1), 0.08);
+        mgr.set_daylight_saving(DaylightSavingShift {
+            active: true,
+            next_day_type: 6,
+            next_day_of_year: 101,
+        });
+        assert_eq!(mgr.fraction("occ", 8, 1), 0.09);
+        assert_eq!(mgr.fraction_doy("occ", 8, 1, 100), 0.09);
+        // Friday hour 24 reads Saturday (weekend) hour 1.
+        assert_eq!(mgr.fraction("occ", 24, 5), 0.5);
+        mgr.set_daylight_saving(DaylightSavingShift::default());
+        assert_eq!(mgr.fraction("occ", 24, 5), 0.24);
     }
 
     #[test]

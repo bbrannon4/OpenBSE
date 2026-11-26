@@ -309,6 +309,22 @@ internal_gains:
 
 Two built-in schedules are always available: `always_on` (1.0 at all times) and `always_off` (0.0 at all times). If no schedule is specified, the gain runs at 100% at all times.
 
+Equipment draws electricity unless it states a `fuel`, which sets the meter its whole input power is booked to; the heat it gives the zone is the same for every fuel. EnergyPlus `GasEquipment` is `fuel: natural_gas`, `HotWaterEquipment` is `fuel: district_heating_water`, `SteamEquipment` is `fuel: district_heating_steam`, and `OtherEquipment` takes its fuel type, or `fuel: none` for an unmetered gain, the only kind whose power may be negative (a heat sink). Top-level `equipment` may give its level as `power`, `watts_per_area` or `watts_per_person`:
+
+```yaml
+equipment:
+  - name: Kitchen Range
+    zones: [Kitchen]
+    fuel: natural_gas
+    power: 15000.0
+    radiant_fraction: 0.3
+    latent_fraction: 0.2
+    lost_fraction: 0.3
+    schedule: Kitchen Hours
+```
+
+Baseboard heat whose capacity follows the outdoor temperature (EnergyPlus `ZoneBaseboard:OutdoorTemperatureControlled`) is an electric internal gain, not HVAC: `outdoor_controlled_baseboards` with `capacity_at_low_temperature`, `low_temperature`, `capacity_at_high_temperature`, `high_temperature` (off at and above it), `radiant_fraction` and an optional `schedule`.
+
 ### Air Loops
 
 An air loop defines a series of supply-side equipment and the zone terminals it serves. Equipment is connected in the order listed — air flows through them sequentially. System behavior (PSZ-AC, DOAS, FCU, VAV, PTAC) is auto-detected from the equipment and controls configuration. Zone connections are listed under `zone_terminals:` (the legacy key `zones:` is accepted as an alias).
@@ -358,6 +374,25 @@ air_loops:
       - zone: East Office
       - zone: West Office
 ```
+
+#### Availability and night cycle
+
+`availability_schedule` turns a loop off while the schedule is below 0.5. A
+`night_cycle` (EnergyPlus `AvailabilityManager:NightCycle`) then runs it for a
+fixed time whenever a zone drifts half the thermostat tolerance past its
+heating or cooling setpoint:
+
+```yaml
+    availability_schedule: HVAC Operation
+    night_cycle:
+      control: cycle_on_any         # or cycle_on_control_zone
+      thermostat_tolerance: 1.0     # [K]; cycles on at half of it past a setpoint
+      cycling_run_time: 1800        # [s], whole timesteps
+```
+
+`high_temperature_turn_off: 7.2` turns a loop off while the outdoor air is
+warmer than 7.2 °C (E+ `AvailabilityManager:HighTemperatureTurnOff`), e.g. an
+entry heater locked out in mild weather.
 
 #### Equipment Order (Supply Air Path)
 
@@ -485,6 +520,43 @@ Heating coil `source` values: `electric`, `hot_water`, `gas`. For gas coils, `ef
 | `eir_ft_curve` | none (linear fallback) |
 
 Cooling coil `source` values: `dx`, `chilled_water`.
+
+#### Multi-speed packaged units
+
+A packaged single-zone loop with a `dx_multispeed` coil (E+
+`Coil:Cooling:DX:MultiSpeed`) runs as E+'s multi-speed `UnitarySystem`: it
+cycles speed 1 against off and runs between speeds part of the time at each.
+The fan's `speeds` give its power at each flow (E+ `Fan:SystemModel`,
+Discrete), and `no_load_flow_fraction` the flow it idles at while it keeps
+running with the coils off:
+
+```yaml
+    controls:
+      fan_operating_mode: continuous
+      no_load_flow_fraction: 0.66
+    equipment:
+      - type: fan
+        name: Supply Fan
+        design_flow_rate: autosize
+        pressure_rise: 622.5
+        speeds:
+          - {flow_fraction: 0.66, power_fraction: 0.4}
+          - {flow_fraction: 1.0, power_fraction: 1.0}
+      - type: heating_coil
+        name: Furnace
+        source: gas
+        capacity: autosize
+        efficiency: 0.81
+        setpoint: 40.0
+      - type: dx_multispeed
+        name: Two-Speed DX
+        cap_ft_curve: CapFT
+        eir_ft_curve: EIRFT
+        plf_curve: PLF
+        speeds:
+          - {rated_capacity: 16210.9, shr: 0.797, cop: 3.80, rated_airflow: 1.299, flow_fraction: 0.66}
+          - {rated_capacity: 32421.9, shr: 0.797, cop: 3.80, rated_airflow: 1.949, flow_fraction: 1.0}
+```
 
 #### Heat recovery defaults
 
@@ -754,11 +826,24 @@ people:
   - name: Office Occupants
     zones: [Office Zones]             # Applies to all zones in the group
     people_per_area: 0.0538
+    activity_level: 120.0             # W/person; sensible heat follows zone temperature
 
 lights:
   - name: Office Lighting
     zones: [Office Zones]
     watts_per_area: 10.76
+
+# Daylighting dims a zone's lights by the daylight at reference points
+# (EnergyPlus Daylighting:Controls, split flux). The zone's exterior windows
+# and skylights need vertices; coordinates are the model's, in metres.
+daylighting_controls:
+  - name: Office Daylighting
+    zone: Perimeter_South
+    lighting_control: continuous_off  # continuous (default), continuous_off, stepped
+    minimum_input_power_fraction: 0.3 # default 0.3
+    minimum_light_output_fraction: 0.2 # default 0.2
+    reference_points:
+      - {x: 3.0, y: 2.0, z: 0.8, fraction_of_zone: 0.5, illuminance_setpoint: 500}
 
 thermostats:
   - name: Office Thermostat
@@ -775,6 +860,23 @@ thermostats:
 | `cooling_setpoint` | 23.9 °C | Occupied cooling setpoint |
 | `unoccupied_heating_setpoint` | 15.6 °C | Unoccupied heating setpoint |
 | `unoccupied_cooling_setpoint` | 29.4 °C | Unoccupied cooling setpoint |
+| `heating_setpoint_schedule` | — | Schedule of heating setpoints [°C] by hour and day type, in place of `heating_setpoint` (EnergyPlus `ThermostatSetpoint:DualSetpoint`) |
+| `cooling_setpoint_schedule` | — | Schedule of cooling setpoints [°C], as above |
+| `design_day_heating_setpoints` / `design_day_cooling_setpoints` | — | 24 hourly setpoints held on the heating / cooling design days |
+
+A setpoint schedule is an ordinary named schedule whose values are temperatures:
+
+```yaml
+schedules:
+  - name: Heating Setpoints
+    weekday:  [15.6, 15.6, 15.6, 15.6, 15.6, 21.1, 21.1, 21.1, 21.1, 21.1, 21.1, 21.1, 21.1, 21.1, 21.1, 21.1, 21.1, 21.1, 21.1, 21.1, 21.1, 15.6, 15.6, 15.6]
+    sunday:   [15.6, 15.6, 15.6, 15.6, 15.6, 15.6, 15.6, 21.1, 21.1, 21.1, 21.1, 21.1, 21.1, 21.1, 21.1, 21.1, 21.1, 21.1, 21.1, 15.6, 15.6, 15.6, 15.6, 15.6]
+thermostats:
+  - name: Office Thermostat
+    zones: [Office Zones]
+    heating_setpoint_schedule: Heating Setpoints
+    cooling_setpoint: 23.9
+```
 
 The thermostat automatically determines the mode (heating, cooling, or deadband) and modulates supply air temperature and flow rate proportionally to the deviation from setpoint.
 
@@ -841,7 +943,7 @@ constructions:
 
 ### Simple Constructions
 
-Simple constructions define opaque assemblies using overall thermal properties instead of individual material layers. Ideal for early design, ASHRAE 140 validation tests, and quick parametric studies.
+Simple constructions define opaque assemblies using overall thermal properties instead of individual material layers. They suit early design and quick parametric studies. The engine builds a layer structure from the U-factor and heat capacity, so use layered constructions where the order and properties of the layers are known.
 
 ```yaml
 simple_constructions:
@@ -864,25 +966,71 @@ Simple constructions are referenced by name in surface definitions, just like re
 
 ### Window Constructions
 
-Windows use a simplified U-factor/SHGC model rather than individual glass layers.
+A window construction is either a **simple glazing system**, given by its NFRC
+U-factor and SHGC, or **layered glazing**, given by its glass layers and gas
+gaps. Never both: a layered window's U-factor and SHGC follow from its layers.
 
 ```yaml
 window_constructions:
   - name: Double Pane
-    u_factor: 2.7               # [W/(m²·K)] including film coefficients
-    shgc: 0.39                  # Solar Heat Gain Coefficient [0–1]
-    glass_emissivity: 0.84      # LW emissivity [0–1], default 0.84 (clear glass)
+    u_factor: 2.7               # NFRC U-factor [W/(m²·K)] including air films
+    shgc: 0.39                  # solar heat gain coefficient at normal incidence
+    visible_transmittance: 0.6  # optional; only reported
 ```
 
-| Field | Default |
-|-------|---------|
-| `glass_emissivity` | 0.84 |
+A simple glazing system is modelled as EnergyPlus's equivalent single glass
+layer for its ratings (`WindowMaterial:SimpleGlazingSystem`).
 
-The `glass_emissivity` field controls longwave radiation exchange between the glass surface and the room interior (and exterior). The default of 0.84 is correct for uncoated soda-lime glass. Use a lower value for low-e coated windows.
+For layered glazing, define each glass type once in `glazing_materials`
+(after EnergyPlus `WindowMaterial:Glazing`, spectral average; "front" faces
+outdoors), then list the layers from outside to inside, alternating glass and
+gas. Up to four glass layers are allowed.
+
+```yaml
+glazing_materials:
+  - name: Low-e 3mm
+    thickness: 0.0032                # [m]
+    conductivity: 1.0                # [W/(m·K)], default 0.9
+    solar_transmittance: 0.452
+    solar_reflectance_front: 0.359
+    solar_reflectance_back: 0.397
+    visible_transmittance: 0.714     # visible properties are optional
+    visible_reflectance_front: 0.207
+    visible_reflectance_back: 0.148
+    emissivity_front: 0.84           # default 0.84
+    emissivity_back: 0.047           # the low-e coating faces the gap
+  - name: Clear 3mm
+    thickness: 0.003
+    conductivity: 1.0
+    solar_transmittance: 0.834
+    solar_reflectance_front: 0.075
+    solar_reflectance_back: 0.075
+
+window_constructions:
+  - name: Triple Low-e
+    layers:
+      - glazing: Low-e 3mm
+      - gas: argon                   # air, argon, krypton or xenon
+        width: 0.0127                # [m]
+      - glazing: Clear 3mm
+      - gas_mixture:                 # mole fractions adding up to 1
+          - {gas: argon, fraction: 0.9}
+          - {gas: air, fraction: 0.1}
+        width: 0.0127
+      - glazing: Clear 3mm
+```
+
+| Glazing material field | Default |
+|-------|---------|
+| `conductivity` | 0.9 W/(m·K) |
+| `visible_transmittance`, `visible_reflectance_front`, `visible_reflectance_back` | the solar values |
+| `emissivity_front`, `emissivity_back` | 0.84 |
+| `infrared_transmittance` | 0 (glass is modelled opaque to long-wave; other values are an error) |
+| `dirt_correction_factor` | 1.0 (applied when the layer is the outermost) |
 
 #### Dynamic Shading Control
 
-An optional `shading_control` block deploys an interior blind/shade based on solar irradiance or zone temperature, with deployment hysteresis. When deployed, solar gains are scaled by `blind_shgc / shgc` and (if `blind_u_factor` is given) the window U-factor switches to the blind+window assembly value. The control is evaluated once per timestep before solar gains, using the previous step's surface conditions (one-step lag, matching E+ `WindowShadingControl`).
+An optional `shading_control` block deploys an interior blind/shade based on solar irradiance or zone temperature, with deployment hysteresis. When deployed, the window+blind assembly (`blind_shgc`, and `blind_u_factor` if given) is modelled as a simple glazing system of its own in place of the window's glazing. The control is evaluated once per timestep before solar gains, using the previous step's surface conditions (one-step lag, matching E+ `WindowShadingControl`).
 
 ```yaml
 window_constructions:
@@ -903,7 +1051,7 @@ window_constructions:
 | `threshold` | Trigger level; for `temperature` you may use `setpoint` instead (default 26 °C; solar default 200 W/m²) |
 | `hysteresis` | Dead-band width; blind retracts when the signal falls below `trigger − hysteresis` (default 0) |
 | `blind_shgc` | Assembly SHGC when deployed (required unless `shade` is given). `0.0` is a valid blackout blind |
-| `blind_u_factor` | Assembly U-factor [W/(m²·K)] when deployed; defaults to the base window U-factor |
+| `blind_u_factor` | Assembly U-factor [W/(m²·K)] when deployed; defaults to the window's U-factor (rated, or nominal for layered glazing) |
 
 The per-window `surface:blind_deployed` output (1 = deployed, 0 = retracted) is emitted for any window with a `shading_control`.
 
@@ -1470,10 +1618,17 @@ Additional component-specific variables:
 | `building:dhw_gas` | Wh | DHW gas/fuel energy |
 | `building:lighting` | Wh | Interior lighting energy |
 | `building:ext_lighting` | Wh | Exterior lighting energy |
-| `building:equipment` | Wh | Interior equipment energy |
+| `building:equipment` | Wh | Interior electric equipment energy (baseboards included) |
+| `building:equipment_gas` | Wh | Interior natural gas equipment energy |
+| `building:equipment_district_heating_water` | Wh | Interior district heating water equipment energy |
+| `building:equipment_district_heating_steam` | Wh | Interior district heating steam equipment energy |
+| `building:equipment_other_fuel` | Wh | Interior equipment energy on other fuels |
 | `building:ext_equipment` | Wh | Exterior equipment energy |
 | `building:total_electric` | Wh | Total electric energy |
-| `building:total_gas` | Wh | Total gas/fuel energy |
+| `building:total_gas` | Wh | Total natural gas energy |
+| `building:total_district_heating_water` | Wh | Total district heating water energy |
+| `building:total_district_heating_steam` | Wh | Total district heating steam energy |
+| `building:total_other_fuel` | Wh | Total energy on other fuels (propane, fuel oil, coal, ...) |
 
 ### Submeters
 
@@ -1514,10 +1669,13 @@ air_loops:
 | `submeter:equipment:Kitchen` | Equipment energy for the "Kitchen" submeter [Wh] |
 | `submeter:fan_electric:HVAC-Zone1` | Fan energy for the "HVAC-Zone1" submeter [Wh] |
 | `submeter:total_electric` | Sum of all electric end uses (per submeter) [Wh] |
-| `submeter:total_gas` | Sum of all gas end uses (per submeter) [Wh] |
+| `submeter:total_gas` | Sum of all natural gas end uses (per submeter) [Wh] |
+| `submeter:total_district_heating_water` | Sum of district heating water end uses (per submeter) [Wh] |
+| `submeter:total_district_heating_steam` | Sum of district heating steam end uses (per submeter) [Wh] |
+| `submeter:total_other_fuel` | Sum of end uses on other fuels (per submeter) [Wh] |
 | `submeter:total` | Sum of all end uses (per submeter) [Wh] |
 
-End-use categories: `fan_electric`, `cooling_electric`, `heating_electric`, `heating_gas`, `pump_electric`, `heat_rejection`, `humidification`, `heat_recovery`, `dhw_electric`, `dhw_gas`, `lighting`, `ext_lighting`, `equipment`, `ext_equipment`.
+End-use categories: `fan_electric`, `cooling_electric`, `heating_electric`, `heating_gas`, `pump_electric`, `heat_rejection`, `humidification`, `heat_recovery`, `dhw_electric`, `dhw_gas`, `lighting`, `ext_lighting`, `equipment` (electric), `equipment_<fuel>` (e.g. `equipment_natural_gas`, `equipment_district_heating_water`), `ext_equipment`.
 
 When any non-"General" submeters exist, the summary report includes a **Submeter Breakdown** section showing monthly energy by submeter and end-use category.
 
@@ -1699,7 +1857,7 @@ Example models in the `examples/` directory demonstrate different system types a
 | [`doas_fancoil.yaml`](../../examples/doas_fancoil.yaml) | Dedicated outdoor air system paired with fan coil units. DOAS auto-detected via `minimum_damper_position: 1.0`. FCU loops use `system_type: fcu`. |
 | [`vav_reheat.yaml`](../../examples/vav_reheat.yaml) | Variable air volume system with central cooling and zone-level reheat. Auto-detected from VAV fan (`source: vav`) with `min_vav_fraction` control. |
 | [`residential_unitary.yaml`](../../examples/residential_unitary.yaml) | Residential unitary system (furnace + DX cooling). Demonstrates gas heating coils and residential-scale equipment sizing. |
-| [`doe_retail_standalone.yaml`](../../examples/doe_retail_standalone.yaml) | DOE reference building with schedules, multiple zones, performance curves for DX coils, and economizer controls. |
+| [`doe_retail_standalone.yaml`](../../examples/doe_retail_standalone.yaml) | The DOE 90.1-2019 Retail Standalone prototype (Denver), transcribed from the E+ IDF by `prototype_tests/retail_standalone/retail_from_idf.py`: two-speed packaged units with night cycle, thermostat setpoint schedules, F-factor floors, a gas unit heater, a stand-alone water heater and exterior lights. Comparison with E+ in `prototype_tests/retail_standalone/COMPARISON_NOTES.md`. |
 | [`multi_year_parametric.yaml`](../../examples/multi_year_parametric.yaml) | Multi-year parametric runs with weather file and parameter overrides. |
 | [`parametric_sweep.yaml`](../../examples/parametric_sweep.yaml) | Parametric sweep analysis — explicit runs with overrides plus auto-generated sweep runs. |
 | [`1zone_uncontrolled.yaml`](../../examples/1zone_uncontrolled.yaml) | Single-zone free-floating model — no HVAC, just building envelope. |

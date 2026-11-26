@@ -2,13 +2,15 @@
 """Generate ASHRAE 140-2023 Section 10 (HE100-HE230) furnace case YAMLs.
 
 Fuel-fired furnace BESTEST. A single adiabatic zone with constant infiltration
-(0.698 CFM/sqft) heated by a gas furnace to 20 C, run Jan-Mar. Each case varies
+(0.2 kg/s) heated by a gas furnace to 20 C, run Jan-Mar. Each case varies
 weather, furnace efficiency, circulating-fan mode, thermostat setback, and
 furnace capacity.
 
 Authoritative parameters from the standard's normative materials (DOE-2 and
-EnergyPlus reference inputs): furnace HIR (1/efficiency), the FurnBest-*.epw
-weather files, infiltration rate, fan power, and setback schedule.
+EnergyPlus reference inputs): furnace HIR (1/efficiency), infiltration rate,
+fan power, and setback schedule. Weather: the Standard's normative WYEC2 files
+(HE100W, HE120W, HE130W, HE140W, HE210W), converted field for field by
+convert_wy2_weather.py into 140_tests/weather/.
 
 Run:  python3 140_tests/scripts/generate_he_cases.py
 """
@@ -18,30 +20,52 @@ import os
 HERE = os.path.dirname(os.path.abspath(__file__))
 CASES_DIR = os.path.join(os.path.dirname(HERE), "cases")
 
-# Infiltration design volume flow [m3/s]: 0.698 CFM/sqft x 516.67 sqft floor.
-# Converted with the zone-air density basis (EnergyPlus convention) so the mass
-# flow is temperature-independent, as in the reference programs.
-INFIL_FLOW = 0.1657
+# Infiltration (Section 10.2.1.9.3): about 0.2 kg/s of outdoor air, set so the
+# zone's total effective UA is 199.953 W/K (its informative note), i.e. a
+# mass flow of 199.953 / cp with cp = 1004.84 + 1858.95 W J/(kg K), the
+# engine's moist-air specific heat. This is the Standard's approach for
+# programs without user-set convection coefficients (Section 10.2.1.9). The
+# input is a volume flow on the zone-air density basis (temperature-
+# independent mass flow); each weather file gets the volume for 20 C zone
+# air at its mean January-March pressure and humidity ratio:
+#   rho = p / (287.042 * 293.15 * (1 + 1.607858 W)),  flow = m / rho.
+# HE100W-HE140W are at 101330 Pa; HE210W averages 100026 Pa over Jan-Mar.
+INFIL_FLOW = {
+    "HE100W": 0.16524,
+    "HE120W": 0.16517,
+    "HE130W": 0.16494,
+    "HE140W": 0.16513,
+    "HE210W": 0.16734,
+}
 
 # case -> dict(weather, efficiency, fan, furnace_kw, setback, draft)
 #   fan:   None | "continuous" | "cycling"   (200 W circulating fan)
 #   draft: draft-fan power [W]; cycles with the burner (DOE-2 FURNACE-AUX-KW,
 #          EnergyPlus COIL:Gas:Heating parasitic electric load). The test's
 #          "fan energy (both fans)" is circulating fan + draft fan.
-FAN_KW = 0.2006  # circulating-fan power [kW] (SUPPLY-KW basis), ~200 W
+# Circulating fan (Section 10.2, Case HE150): 200 W at 0.355 m3/s, all of its
+# heat to the supply air. Total efficiency 0.5 with a 281.7 Pa rise gives
+# 0.355 * 281.7 / 0.5 = 200 W. The loop's design mass flow is 0.355 m3/s at
+# 20 C zone air and 101330 Pa (1.204 kg/m3); the fan converts mass to volume
+# flow at that density, so its power stays 200 W whatever the supply
+# temperature (the specified fan draw is constant).
+FAN_FLOW = 0.355  # m3/s
+FAN_DP = 281.7  # Pa
+FAN_RHO = 1.204  # kg/m3
+LOOP_FLOW = 0.4274  # kg/s
 DRAFT_FAN_W = 50.0
 CASES = {
-    "HE100": dict(w="FurnBest-a", eff=1.00, fan=None, kw=10.0, setback=False, draft=0.0),
-    "HE110": dict(w="FurnBest-a", eff=0.80, fan=None, kw=10.0, setback=False, draft=0.0),
-    "HE120": dict(w="FurnBest-c", eff=0.80, fan=None, kw=10.0, setback=False, draft=0.0),
-    "HE130": dict(w="FurnBest-d", eff=0.80, fan=None, kw=10.0, setback=False, draft=0.0),
-    "HE140": dict(w="FurnBest-e", eff=0.80, fan=None, kw=10.0, setback=False, draft=0.0),
-    "HE150": dict(w="FurnBest-e", eff=0.80, fan="continuous", kw=10.0, setback=False, draft=0.0),
-    "HE160": dict(w="FurnBest-e", eff=0.80, fan="cycling", kw=10.0, setback=False, draft=0.0),
-    "HE170": dict(w="FurnBest-e", eff=0.80, fan="continuous", kw=10.0, setback=False, draft=DRAFT_FAN_W),
-    "HE210": dict(w="FurnBest-f", eff=0.80, fan="cycling", kw=10.0, setback=False, draft=DRAFT_FAN_W),
-    "HE220": dict(w="FurnBest-f", eff=0.80, fan="cycling", kw=10.0, setback=True, draft=DRAFT_FAN_W),
-    "HE230": dict(w="FurnBest-f", eff=0.80, fan="cycling", kw=5.0, setback=True, draft=DRAFT_FAN_W),
+    "HE100": dict(w="HE100W", eff=1.00, fan=None, kw=10.0, setback=False, draft=0.0),
+    "HE110": dict(w="HE100W", eff=0.80, fan=None, kw=10.0, setback=False, draft=0.0),
+    "HE120": dict(w="HE120W", eff=0.80, fan=None, kw=10.0, setback=False, draft=0.0),
+    "HE130": dict(w="HE130W", eff=0.80, fan=None, kw=10.0, setback=False, draft=0.0),
+    "HE140": dict(w="HE140W", eff=0.80, fan=None, kw=10.0, setback=False, draft=0.0),
+    "HE150": dict(w="HE140W", eff=0.80, fan="continuous", kw=10.0, setback=False, draft=0.0),
+    "HE160": dict(w="HE140W", eff=0.80, fan="cycling", kw=10.0, setback=False, draft=0.0),
+    "HE170": dict(w="HE140W", eff=0.80, fan="continuous", kw=10.0, setback=False, draft=DRAFT_FAN_W),
+    "HE210": dict(w="HE210W", eff=0.80, fan="cycling", kw=10.0, setback=False, draft=DRAFT_FAN_W),
+    "HE220": dict(w="HE210W", eff=0.80, fan="cycling", kw=10.0, setback=True, draft=DRAFT_FAN_W),
+    "HE230": dict(w="HE210W", eff=0.80, fan="cycling", kw=5.0, setback=True, draft=DRAFT_FAN_W),
 }
 
 WALLS = [
@@ -71,12 +95,12 @@ def make_yaml(case, c):
     fan_block = ""
     if c["fan"]:
         mode = "continuous" if c["fan"] == "continuous" else "cycling"
-        # Design flow to deliver furnace capacity at ~30C supply rise.
         fan_block = f"""      - type: fan
         name: {case} Circulating Fan
         source: constant_volume
-        design_flow_rate: 0.30
-        pressure_rise: 227.0
+        design_flow_rate: {FAN_FLOW}
+        pressure_rise: {FAN_DP}
+        air_density: {FAN_RHO}
         motor_efficiency: 1.0
         impeller_efficiency: 0.5
         motor_in_airstream_fraction: 1.0
@@ -84,12 +108,14 @@ def make_yaml(case, c):
     fan_mode = "continuous" if c["fan"] == "continuous" else "cycling"
     # Emitted only when present so the other cases' YAML stays byte-identical.
     draft_line = f"        parasitic_electric_load: {c['draft']}\n" if c["draft"] else ""
-    # Night setback (HE220/HE230): 15 C hours 1-6, 20 C otherwise (DOE-2 spec).
+    # Night setback (HE220/HE230, Section 10.2): heat below 15 C for
+    # 23:00 < time < 6:00 and below 20 C for 6:00 <= time <= 23:00, i.e.
+    # 15 C in hour-ending hours 24 and 1-6, 20 C in hours 7-23.
     heat_sp_line = "    heating_setpoint: 20.0"
     if c["setback"]:
         setback_sched = """    thermostat_schedule:
-      - {start_hour: 1, end_hour: 6, heating_setpoint: 15.0, cooling_setpoint: 99.0}
-      - {start_hour: 7, end_hour: 0, heating_setpoint: 20.0, cooling_setpoint: 99.0}
+      - {start_hour: 24, end_hour: 6, heating_setpoint: 15.0, cooling_setpoint: 99.0}
+      - {start_hour: 7, end_hour: 23, heating_setpoint: 20.0, cooling_setpoint: 99.0}
 """
     else:
         setback_sched = ""
@@ -106,7 +132,7 @@ simulation:
   end_day: 31
 
 weather_files:
-  - "../weather/{c['w']}.epw"
+  - "../weather/{c['w']}.csv"
 
 simple_constructions:
   - name: Adiabatic Wall
@@ -124,7 +150,7 @@ zones:
 infiltration:
   - name: {case} Infiltration
     zones: [{z}]
-    design_flow_rate: {INFIL_FLOW}
+    design_flow_rate: {INFIL_FLOW[c['w']]}
     density_basis: zone
 
 surfaces:
@@ -138,7 +164,7 @@ air_loops:
       cycling: on_off
       deadband: 1.0
       minimum_damper_position: 0.0
-      design_zone_flow: 0.5
+      design_zone_flow: {LOOP_FLOW}
       fan_operating_mode: {fan_mode}
     equipment:
       - type: heating_coil

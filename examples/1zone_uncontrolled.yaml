@@ -8,7 +8,7 @@
 #   - 4 walls: R-13 resistive (no mass), exposed to outdoor
 #   - 1 roof: R-31 resistive (no mass), exposed to outdoor
 #   - 1 floor: 4" HW concrete, adiabatic boundary
-#   - No windows, no infiltration, no internal gains, no HVAC
+#   - No windows, no infiltration, no HVAC; two internal gains of +352 W and -352 W that cancel
 #   - Free-float zone temperature (uncontrolled)
 #
 # E+ reference results (annual, hourly):
@@ -76,14 +76,27 @@ simple_constructions:
 
 # ─── Zone ──────────────────────────────────────────────────────────────
 #
-# Single zone, no HVAC, no infiltration, no internal gains.
-# The two OtherEquipment objects in the IDF (+352W and -352W) cancel out.
+# Single zone, no HVAC, no infiltration. The IDF's two unmetered
+# OtherEquipment objects (+352 W and -352 W, fuel None, all convective)
+# cancel out.
 
 zones:
   - name: ZONE ONE
     volume: 1063.1            # 15.24 * 15.24 * 4.572
     floor_area: 232.26        # 15.24 * 15.24
     conditioned: false        # Free-float, no HVAC
+
+equipment:
+  - name: Test 352a
+    zones: [ZONE ONE]
+    fuel: none
+    power: 352.0
+    radiant_fraction: 0.0
+  - name: Test 352 minus
+    zones: [ZONE ONE]
+    fuel: none
+    power: -352.0
+    radiant_fraction: 0.0
 
 # ─── Surfaces ──────────────────────────────────────────────────────────
 #

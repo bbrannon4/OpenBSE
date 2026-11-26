@@ -229,6 +229,16 @@ impl SimulationGraph {
             .collect()
     }
 
+    /// Tell every component whether the run is in warmup.
+    pub fn set_warmup(&mut self, warmup: bool) {
+        for gc in self.graph.node_weights_mut() {
+            match gc {
+                GraphComponent::Air(c) => c.set_warmup(warmup),
+                GraphComponent::Plant(c) => c.set_warmup(warmup),
+            }
+        }
+    }
+
     /// Iterate over all air components mutably (for autosizing).
     pub fn air_components_mut(&mut self) -> Vec<&mut Box<dyn AirComponent>> {
         self.graph

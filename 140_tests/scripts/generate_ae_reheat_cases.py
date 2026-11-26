@@ -27,8 +27,8 @@ V1, V2 = 0.28317, 0.33036  # zone design volume flows [m3/s]
 M1, M2 = V1 * RHO, V2 * RHO  # zone design mass flows [kg/s]
 OA_FRACTION = 0.3846  # (0.09439 + 0.14158) / (V1+V2) — fixed minimum outdoor-air fraction
 
-# weather point per case (constant-condition EPW shared with the single-zone AE)
-W = {101: "AE_m29", 103: "AE_155", 104: "AE_269", 105: "AE_249", 106: "AE_230"}
+# weather per case: the normative AE10x.TM2 files converted by convert_tm2_weather.py
+W = {101: "AE101", 103: "AE103", 104: "AE104", 105: "AE105", 106: "AE106"}
 
 # case -> dict(z1=(sens,sp), z2=(sens,sp), w=weatherkey, econ, cv)
 CASES = {
@@ -99,7 +99,7 @@ simulation:
   end_day: 7
 
 weather_files:
-  - "../weather/{W[c['w']]}.epw"
+  - "../weather/{W[c['w']]}.csv"
 
 simple_constructions:
   - name: Adiabatic Wall
@@ -118,10 +118,10 @@ zones:
     floor_area: 48.0
 
 equipment:
-  - {{name: {case} Z1 Sensible, zones: [{z1n}], power: {s1}, radiant_fraction: 0.0, latent_fraction: 0.0}}
-  - {{name: {case} Z1 Latent, zones: [{z1n}], power: {LAT1}, radiant_fraction: 0.0, latent_fraction: 1.0}}
-  - {{name: {case} Z2 Sensible, zones: [{z2n}], power: {s2}, radiant_fraction: 0.0, latent_fraction: 0.0}}
-  - {{name: {case} Z2 Latent, zones: [{z2n}], power: {LAT2}, radiant_fraction: 0.0, latent_fraction: 1.0}}
+  - {{name: {case} Z1 Sensible, zones: [{z1n}], power: {s1}, fuel: none, radiant_fraction: 0.0, latent_fraction: 0.0}}
+  - {{name: {case} Z1 Latent, zones: [{z1n}], power: {LAT1}, fuel: none, radiant_fraction: 0.0, latent_fraction: 1.0}}
+  - {{name: {case} Z2 Sensible, zones: [{z2n}], power: {s2}, fuel: none, radiant_fraction: 0.0, latent_fraction: 0.0}}
+  - {{name: {case} Z2 Latent, zones: [{z2n}], power: {LAT2}, fuel: none, radiant_fraction: 0.0, latent_fraction: 1.0}}
 
 surfaces:
 {surfaces(case, 'Zone1')}

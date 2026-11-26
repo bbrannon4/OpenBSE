@@ -80,7 +80,9 @@ shared by every surface that needs it:
 - slab-on-grade floors are F-factor floors (@sec-ffactor) at the table's
   F-factor;
 - fenestration uses the table's U-factor and SHGC in the simple glazing model
-  (@sec-windows). Tables banded by area ratio (Appendix G) are indexed by the
+  (@sec-windows), with the table's visible transmittance where it gives one
+  (Appendix G) or else the least that meets its minimum VT/SHGC ratio at that
+  SHGC (prescriptive), which daylighting controls read. Tables banded by area ratio (Appendix G) are indexed by the
   window-to-wall ratio of the exterior walls of the zones the envelope covers,
   or the skylight-to-roof ratio for skylights. A ratio belongs to the first
   band whose upper bound it does not exceed.
@@ -154,8 +156,6 @@ counterpart.
   wall without an explicit construction is an error.
 - There is no door surface type, so opaque-door rows are stored but not
   applied ([#404](https://github.com/bbrannon4/OpenBSE/issues/404)).
-- Visible transmittance and the VT/SHGC ratio are reported but unused: the
-  engine has no daylighting model ([#407](https://github.com/bbrannon4/OpenBSE/issues/407)).
 - Lighting control requirements, additional lighting power allowances and the
   Appendix G occupancy sensor reductions are not applied. Room cavity ratio
   thresholds and occupancy sensor reductions are stored ([#403](https://github.com/bbrannon4/OpenBSE/issues/403)).

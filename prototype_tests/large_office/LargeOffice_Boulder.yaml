@@ -1,5 +1,8 @@
 simulation:
   timesteps_per_hour: 6
+  unmet_heating_tolerance: 0.556   # OutputControl:ReportingTolerances (1 F)
+  unmet_cooling_tolerance: 0.556
+  daylight_saving_time: {start: 2nd Sunday in March, end: 1st Sunday in November}   # RunPeriodControl:DaylightSavingTime
   start_month: 1
   start_day: 1
   end_month: 12
@@ -14275,7 +14278,7 @@ air_loops:
     heating_supply_temp: 32.11
     cooling_supply_temp: 12.89
     design_zone_flow: autosize
-    cycling: proportional
+    cycling: modulating
     economizer:
       economizer_type: fixed_dry_bulb
       high_limit: 23.889
@@ -14285,6 +14288,19 @@ air_loops:
       sat_min: 12.89
       sat_max: 32.11
   equipment:
+  - type: cooling_coil
+    name: CAV_bas Cooling Coil
+    source: chilled_water
+    capacity: autosize
+    shr: 0.8
+    setpoint: 12.89
+    plant_loop: CHW Loop
+  - type: heating_coil
+    name: CAV_bas Preheat Coil
+    source: hot_water
+    capacity: 100000.0
+    setpoint: 32.11
+    plant_loop: HHW Loop
   - type: fan
     name: CAV_bas Supply Fan
     source: vav
@@ -14299,19 +14315,6 @@ air_loops:
     - -0.0998
     - 0.0
     motor_in_airstream_fraction: 1.0
-  - type: heating_coil
-    name: CAV_bas Preheat Coil
-    source: hot_water
-    capacity: 100000.0
-    setpoint: 32.11
-    plant_loop: HHW Loop
-  - type: cooling_coil
-    name: CAV_bas Cooling Coil
-    source: chilled_water
-    capacity: autosize
-    shr: 0.8
-    setpoint: 12.89
-    plant_loop: CHW Loop
   zone_terminals:
   - zone: Basement
   min_vav_fraction: 0.3
@@ -14321,25 +14324,11 @@ air_loops:
     heating_supply_temp: 29.11
     cooling_supply_temp: 15.89
     design_zone_flow: autosize
-    cycling: proportional
+    cycling: modulating
     fan_operating_mode: continuous
     economizer:
       economizer_type: no_economizer
   equipment:
-  - type: fan
-    name: DC_bot Supply Fan
-    source: constant_volume
-    design_flow_rate: autosize
-    pressure_rise: 966.867
-    impeller_efficiency: 0.65
-    motor_efficiency: 0.895
-    motor_in_airstream_fraction: 1.0
-  - type: heating_coil
-    name: DC_bot Heating Coil
-    source: gas
-    capacity: autosize
-    setpoint: 29.11
-    efficiency: 0.8
   - type: cooling_coil
     name: DC_bot DX Cooling Coil
     source: dx
@@ -14353,6 +14342,20 @@ air_loops:
     cap_fflow_curve: SmDX_CapFF
     eir_fflow_curve: SmDX_EIRFF
     plf_curve: SmDX_PLR
+  - type: heating_coil
+    name: DC_bot Heating Coil
+    source: gas
+    capacity: autosize
+    setpoint: 29.11
+    efficiency: 0.8
+  - type: fan
+    name: DC_bot Supply Fan
+    source: constant_volume
+    design_flow_rate: autosize
+    pressure_rise: 966.867
+    impeller_efficiency: 0.65
+    motor_efficiency: 0.895
+    motor_in_airstream_fraction: 1.0
   zone_terminals:
   - zone: DataCenter_bot_ZN_6
 - name: AirLoop_DataCenter_mid_f2
@@ -14361,25 +14364,11 @@ air_loops:
     heating_supply_temp: 29.11
     cooling_supply_temp: 15.89
     design_zone_flow: autosize
-    cycling: proportional
+    cycling: modulating
     fan_operating_mode: continuous
     economizer:
       economizer_type: no_economizer
   equipment:
-  - type: fan
-    name: DC_mid Supply Fan_f2
-    source: constant_volume
-    design_flow_rate: autosize
-    pressure_rise: 966.867
-    impeller_efficiency: 0.65
-    motor_efficiency: 0.865
-    motor_in_airstream_fraction: 1.0
-  - type: heating_coil
-    name: DC_mid Heating Coil_f2
-    source: gas
-    capacity: autosize
-    setpoint: 29.11
-    efficiency: 0.7925
   - type: cooling_coil
     name: DC_mid DX Cooling Coil_f2
     source: dx
@@ -14393,6 +14382,20 @@ air_loops:
     cap_fflow_curve: SmDX_CapFF
     eir_fflow_curve: SmDX_EIRFF
     plf_curve: SmDX_PLR
+  - type: heating_coil
+    name: DC_mid Heating Coil_f2
+    source: gas
+    capacity: autosize
+    setpoint: 29.11
+    efficiency: 0.7925
+  - type: fan
+    name: DC_mid Supply Fan_f2
+    source: constant_volume
+    design_flow_rate: autosize
+    pressure_rise: 966.867
+    impeller_efficiency: 0.65
+    motor_efficiency: 0.865
+    motor_in_airstream_fraction: 1.0
   zone_terminals:
   - zone: DataCenter_mid_ZN_6_f2
 - name: AirLoop_DataCenter_mid_f3
@@ -14401,25 +14404,11 @@ air_loops:
     heating_supply_temp: 29.11
     cooling_supply_temp: 15.89
     design_zone_flow: autosize
-    cycling: proportional
+    cycling: modulating
     fan_operating_mode: continuous
     economizer:
       economizer_type: no_economizer
   equipment:
-  - type: fan
-    name: DC_mid Supply Fan_f3
-    source: constant_volume
-    design_flow_rate: autosize
-    pressure_rise: 966.867
-    impeller_efficiency: 0.65
-    motor_efficiency: 0.865
-    motor_in_airstream_fraction: 1.0
-  - type: heating_coil
-    name: DC_mid Heating Coil_f3
-    source: gas
-    capacity: autosize
-    setpoint: 29.11
-    efficiency: 0.7925
   - type: cooling_coil
     name: DC_mid DX Cooling Coil_f3
     source: dx
@@ -14433,6 +14422,20 @@ air_loops:
     cap_fflow_curve: SmDX_CapFF
     eir_fflow_curve: SmDX_EIRFF
     plf_curve: SmDX_PLR
+  - type: heating_coil
+    name: DC_mid Heating Coil_f3
+    source: gas
+    capacity: autosize
+    setpoint: 29.11
+    efficiency: 0.7925
+  - type: fan
+    name: DC_mid Supply Fan_f3
+    source: constant_volume
+    design_flow_rate: autosize
+    pressure_rise: 966.867
+    impeller_efficiency: 0.65
+    motor_efficiency: 0.865
+    motor_in_airstream_fraction: 1.0
   zone_terminals:
   - zone: DataCenter_mid_ZN_6_f3
 - name: AirLoop_DataCenter_mid_f4
@@ -14441,25 +14444,11 @@ air_loops:
     heating_supply_temp: 29.11
     cooling_supply_temp: 15.89
     design_zone_flow: autosize
-    cycling: proportional
+    cycling: modulating
     fan_operating_mode: continuous
     economizer:
       economizer_type: no_economizer
   equipment:
-  - type: fan
-    name: DC_mid Supply Fan_f4
-    source: constant_volume
-    design_flow_rate: autosize
-    pressure_rise: 966.867
-    impeller_efficiency: 0.65
-    motor_efficiency: 0.865
-    motor_in_airstream_fraction: 1.0
-  - type: heating_coil
-    name: DC_mid Heating Coil_f4
-    source: gas
-    capacity: autosize
-    setpoint: 29.11
-    efficiency: 0.7925
   - type: cooling_coil
     name: DC_mid DX Cooling Coil_f4
     source: dx
@@ -14473,6 +14462,20 @@ air_loops:
     cap_fflow_curve: SmDX_CapFF
     eir_fflow_curve: SmDX_EIRFF
     plf_curve: SmDX_PLR
+  - type: heating_coil
+    name: DC_mid Heating Coil_f4
+    source: gas
+    capacity: autosize
+    setpoint: 29.11
+    efficiency: 0.7925
+  - type: fan
+    name: DC_mid Supply Fan_f4
+    source: constant_volume
+    design_flow_rate: autosize
+    pressure_rise: 966.867
+    impeller_efficiency: 0.65
+    motor_efficiency: 0.865
+    motor_in_airstream_fraction: 1.0
   zone_terminals:
   - zone: DataCenter_mid_ZN_6_f4
 - name: AirLoop_DataCenter_mid_f5
@@ -14481,25 +14484,11 @@ air_loops:
     heating_supply_temp: 29.11
     cooling_supply_temp: 15.89
     design_zone_flow: autosize
-    cycling: proportional
+    cycling: modulating
     fan_operating_mode: continuous
     economizer:
       economizer_type: no_economizer
   equipment:
-  - type: fan
-    name: DC_mid Supply Fan_f5
-    source: constant_volume
-    design_flow_rate: autosize
-    pressure_rise: 966.867
-    impeller_efficiency: 0.65
-    motor_efficiency: 0.865
-    motor_in_airstream_fraction: 1.0
-  - type: heating_coil
-    name: DC_mid Heating Coil_f5
-    source: gas
-    capacity: autosize
-    setpoint: 29.11
-    efficiency: 0.7925
   - type: cooling_coil
     name: DC_mid DX Cooling Coil_f5
     source: dx
@@ -14513,6 +14502,20 @@ air_loops:
     cap_fflow_curve: SmDX_CapFF
     eir_fflow_curve: SmDX_EIRFF
     plf_curve: SmDX_PLR
+  - type: heating_coil
+    name: DC_mid Heating Coil_f5
+    source: gas
+    capacity: autosize
+    setpoint: 29.11
+    efficiency: 0.7925
+  - type: fan
+    name: DC_mid Supply Fan_f5
+    source: constant_volume
+    design_flow_rate: autosize
+    pressure_rise: 966.867
+    impeller_efficiency: 0.65
+    motor_efficiency: 0.865
+    motor_in_airstream_fraction: 1.0
   zone_terminals:
   - zone: DataCenter_mid_ZN_6_f5
 - name: AirLoop_DataCenter_mid_f6
@@ -14521,25 +14524,11 @@ air_loops:
     heating_supply_temp: 29.11
     cooling_supply_temp: 15.89
     design_zone_flow: autosize
-    cycling: proportional
+    cycling: modulating
     fan_operating_mode: continuous
     economizer:
       economizer_type: no_economizer
   equipment:
-  - type: fan
-    name: DC_mid Supply Fan_f6
-    source: constant_volume
-    design_flow_rate: autosize
-    pressure_rise: 966.867
-    impeller_efficiency: 0.65
-    motor_efficiency: 0.865
-    motor_in_airstream_fraction: 1.0
-  - type: heating_coil
-    name: DC_mid Heating Coil_f6
-    source: gas
-    capacity: autosize
-    setpoint: 29.11
-    efficiency: 0.7925
   - type: cooling_coil
     name: DC_mid DX Cooling Coil_f6
     source: dx
@@ -14553,6 +14542,20 @@ air_loops:
     cap_fflow_curve: SmDX_CapFF
     eir_fflow_curve: SmDX_EIRFF
     plf_curve: SmDX_PLR
+  - type: heating_coil
+    name: DC_mid Heating Coil_f6
+    source: gas
+    capacity: autosize
+    setpoint: 29.11
+    efficiency: 0.7925
+  - type: fan
+    name: DC_mid Supply Fan_f6
+    source: constant_volume
+    design_flow_rate: autosize
+    pressure_rise: 966.867
+    impeller_efficiency: 0.65
+    motor_efficiency: 0.865
+    motor_in_airstream_fraction: 1.0
   zone_terminals:
   - zone: DataCenter_mid_ZN_6_f6
 - name: AirLoop_DataCenter_mid_f7
@@ -14561,25 +14564,11 @@ air_loops:
     heating_supply_temp: 29.11
     cooling_supply_temp: 15.89
     design_zone_flow: autosize
-    cycling: proportional
+    cycling: modulating
     fan_operating_mode: continuous
     economizer:
       economizer_type: no_economizer
   equipment:
-  - type: fan
-    name: DC_mid Supply Fan_f7
-    source: constant_volume
-    design_flow_rate: autosize
-    pressure_rise: 966.867
-    impeller_efficiency: 0.65
-    motor_efficiency: 0.865
-    motor_in_airstream_fraction: 1.0
-  - type: heating_coil
-    name: DC_mid Heating Coil_f7
-    source: gas
-    capacity: autosize
-    setpoint: 29.11
-    efficiency: 0.7925
   - type: cooling_coil
     name: DC_mid DX Cooling Coil_f7
     source: dx
@@ -14593,6 +14582,20 @@ air_loops:
     cap_fflow_curve: SmDX_CapFF
     eir_fflow_curve: SmDX_EIRFF
     plf_curve: SmDX_PLR
+  - type: heating_coil
+    name: DC_mid Heating Coil_f7
+    source: gas
+    capacity: autosize
+    setpoint: 29.11
+    efficiency: 0.7925
+  - type: fan
+    name: DC_mid Supply Fan_f7
+    source: constant_volume
+    design_flow_rate: autosize
+    pressure_rise: 966.867
+    impeller_efficiency: 0.65
+    motor_efficiency: 0.865
+    motor_in_airstream_fraction: 1.0
   zone_terminals:
   - zone: DataCenter_mid_ZN_6_f7
 - name: AirLoop_DataCenter_mid_f8
@@ -14601,25 +14604,11 @@ air_loops:
     heating_supply_temp: 29.11
     cooling_supply_temp: 15.89
     design_zone_flow: autosize
-    cycling: proportional
+    cycling: modulating
     fan_operating_mode: continuous
     economizer:
       economizer_type: no_economizer
   equipment:
-  - type: fan
-    name: DC_mid Supply Fan_f8
-    source: constant_volume
-    design_flow_rate: autosize
-    pressure_rise: 966.867
-    impeller_efficiency: 0.65
-    motor_efficiency: 0.865
-    motor_in_airstream_fraction: 1.0
-  - type: heating_coil
-    name: DC_mid Heating Coil_f8
-    source: gas
-    capacity: autosize
-    setpoint: 29.11
-    efficiency: 0.7925
   - type: cooling_coil
     name: DC_mid DX Cooling Coil_f8
     source: dx
@@ -14633,6 +14622,20 @@ air_loops:
     cap_fflow_curve: SmDX_CapFF
     eir_fflow_curve: SmDX_EIRFF
     plf_curve: SmDX_PLR
+  - type: heating_coil
+    name: DC_mid Heating Coil_f8
+    source: gas
+    capacity: autosize
+    setpoint: 29.11
+    efficiency: 0.7925
+  - type: fan
+    name: DC_mid Supply Fan_f8
+    source: constant_volume
+    design_flow_rate: autosize
+    pressure_rise: 966.867
+    impeller_efficiency: 0.65
+    motor_efficiency: 0.865
+    motor_in_airstream_fraction: 1.0
   zone_terminals:
   - zone: DataCenter_mid_ZN_6_f8
 - name: AirLoop_DataCenter_mid_f9
@@ -14641,25 +14644,11 @@ air_loops:
     heating_supply_temp: 29.11
     cooling_supply_temp: 15.89
     design_zone_flow: autosize
-    cycling: proportional
+    cycling: modulating
     fan_operating_mode: continuous
     economizer:
       economizer_type: no_economizer
   equipment:
-  - type: fan
-    name: DC_mid Supply Fan_f9
-    source: constant_volume
-    design_flow_rate: autosize
-    pressure_rise: 966.867
-    impeller_efficiency: 0.65
-    motor_efficiency: 0.865
-    motor_in_airstream_fraction: 1.0
-  - type: heating_coil
-    name: DC_mid Heating Coil_f9
-    source: gas
-    capacity: autosize
-    setpoint: 29.11
-    efficiency: 0.7925
   - type: cooling_coil
     name: DC_mid DX Cooling Coil_f9
     source: dx
@@ -14673,6 +14662,20 @@ air_loops:
     cap_fflow_curve: SmDX_CapFF
     eir_fflow_curve: SmDX_EIRFF
     plf_curve: SmDX_PLR
+  - type: heating_coil
+    name: DC_mid Heating Coil_f9
+    source: gas
+    capacity: autosize
+    setpoint: 29.11
+    efficiency: 0.7925
+  - type: fan
+    name: DC_mid Supply Fan_f9
+    source: constant_volume
+    design_flow_rate: autosize
+    pressure_rise: 966.867
+    impeller_efficiency: 0.65
+    motor_efficiency: 0.865
+    motor_in_airstream_fraction: 1.0
   zone_terminals:
   - zone: DataCenter_mid_ZN_6_f9
 - name: AirLoop_DataCenter_mid_f10
@@ -14681,25 +14684,11 @@ air_loops:
     heating_supply_temp: 29.11
     cooling_supply_temp: 15.89
     design_zone_flow: autosize
-    cycling: proportional
+    cycling: modulating
     fan_operating_mode: continuous
     economizer:
       economizer_type: no_economizer
   equipment:
-  - type: fan
-    name: DC_mid Supply Fan_f10
-    source: constant_volume
-    design_flow_rate: autosize
-    pressure_rise: 966.867
-    impeller_efficiency: 0.65
-    motor_efficiency: 0.865
-    motor_in_airstream_fraction: 1.0
-  - type: heating_coil
-    name: DC_mid Heating Coil_f10
-    source: gas
-    capacity: autosize
-    setpoint: 29.11
-    efficiency: 0.7925
   - type: cooling_coil
     name: DC_mid DX Cooling Coil_f10
     source: dx
@@ -14713,6 +14702,20 @@ air_loops:
     cap_fflow_curve: SmDX_CapFF
     eir_fflow_curve: SmDX_EIRFF
     plf_curve: SmDX_PLR
+  - type: heating_coil
+    name: DC_mid Heating Coil_f10
+    source: gas
+    capacity: autosize
+    setpoint: 29.11
+    efficiency: 0.7925
+  - type: fan
+    name: DC_mid Supply Fan_f10
+    source: constant_volume
+    design_flow_rate: autosize
+    pressure_rise: 966.867
+    impeller_efficiency: 0.65
+    motor_efficiency: 0.865
+    motor_in_airstream_fraction: 1.0
   zone_terminals:
   - zone: DataCenter_mid_ZN_6_f10
 - name: AirLoop_DataCenter_mid_f11
@@ -14721,25 +14724,11 @@ air_loops:
     heating_supply_temp: 29.11
     cooling_supply_temp: 15.89
     design_zone_flow: autosize
-    cycling: proportional
+    cycling: modulating
     fan_operating_mode: continuous
     economizer:
       economizer_type: no_economizer
   equipment:
-  - type: fan
-    name: DC_mid Supply Fan_f11
-    source: constant_volume
-    design_flow_rate: autosize
-    pressure_rise: 966.867
-    impeller_efficiency: 0.65
-    motor_efficiency: 0.865
-    motor_in_airstream_fraction: 1.0
-  - type: heating_coil
-    name: DC_mid Heating Coil_f11
-    source: gas
-    capacity: autosize
-    setpoint: 29.11
-    efficiency: 0.7925
   - type: cooling_coil
     name: DC_mid DX Cooling Coil_f11
     source: dx
@@ -14753,6 +14742,20 @@ air_loops:
     cap_fflow_curve: SmDX_CapFF
     eir_fflow_curve: SmDX_EIRFF
     plf_curve: SmDX_PLR
+  - type: heating_coil
+    name: DC_mid Heating Coil_f11
+    source: gas
+    capacity: autosize
+    setpoint: 29.11
+    efficiency: 0.7925
+  - type: fan
+    name: DC_mid Supply Fan_f11
+    source: constant_volume
+    design_flow_rate: autosize
+    pressure_rise: 966.867
+    impeller_efficiency: 0.65
+    motor_efficiency: 0.865
+    motor_in_airstream_fraction: 1.0
   zone_terminals:
   - zone: DataCenter_mid_ZN_6_f11
 - name: AirLoop_DataCenter_top
@@ -14761,25 +14764,11 @@ air_loops:
     heating_supply_temp: 29.11
     cooling_supply_temp: 15.89
     design_zone_flow: autosize
-    cycling: proportional
+    cycling: modulating
     fan_operating_mode: continuous
     economizer:
       economizer_type: no_economizer
   equipment:
-  - type: fan
-    name: DC_top Supply Fan
-    source: constant_volume
-    design_flow_rate: autosize
-    pressure_rise: 966.867
-    impeller_efficiency: 0.65
-    motor_efficiency: 0.895
-    motor_in_airstream_fraction: 1.0
-  - type: heating_coil
-    name: DC_top Heating Coil
-    source: gas
-    capacity: autosize
-    setpoint: 29.11
-    efficiency: 0.8
   - type: cooling_coil
     name: DC_top DX Cooling Coil
     source: dx
@@ -14793,6 +14782,20 @@ air_loops:
     cap_fflow_curve: SmDX_CapFF
     eir_fflow_curve: SmDX_EIRFF
     plf_curve: SmDX_PLR
+  - type: heating_coil
+    name: DC_top Heating Coil
+    source: gas
+    capacity: autosize
+    setpoint: 29.11
+    efficiency: 0.8
+  - type: fan
+    name: DC_top Supply Fan
+    source: constant_volume
+    design_flow_rate: autosize
+    pressure_rise: 966.867
+    impeller_efficiency: 0.65
+    motor_efficiency: 0.895
+    motor_in_airstream_fraction: 1.0
   zone_terminals:
   - zone: DataCenter_top_ZN_6
 - name: AirLoop_DataCenter_basement
@@ -14801,15 +14804,29 @@ air_loops:
     heating_supply_temp: 29.11
     cooling_supply_temp: 15.89
     design_zone_flow: autosize
-    cycling: proportional
+    cycling: modulating
     economizer:
       economizer_type: differential_dry_bulb
+      max_outdoor_temp: 23.8889   # Economizer Maximum Limit Dry-Bulb Temperature
     fan_operating_mode: continuous
     cooling_sat_reset:
       type: single_zone
       sat_min: 15.89
       sat_max: 29.11
   equipment:
+  - type: cooling_coil
+    name: DC_basement CHW Cooling Coil
+    source: chilled_water
+    capacity: autosize
+    shr: 0.8
+    setpoint: 15.89
+    plant_loop: CHW Loop
+  - type: heating_coil
+    name: DC_basement Heating Coil
+    source: hot_water
+    capacity: 100000.0
+    setpoint: 29.11
+    plant_loop: HHW Loop
   - type: fan
     name: DC_basement Supply Fan
     source: vav
@@ -14824,19 +14841,6 @@ air_loops:
     - -0.0998
     - 0.0
     motor_in_airstream_fraction: 1.0
-  - type: heating_coil
-    name: DC_basement Heating Coil
-    source: hot_water
-    capacity: 100000.0
-    setpoint: 29.11
-    plant_loop: HHW Loop
-  - type: cooling_coil
-    name: DC_basement CHW Cooling Coil
-    source: chilled_water
-    capacity: autosize
-    shr: 0.8
-    setpoint: 15.89
-    plant_loop: CHW Loop
   zone_terminals:
   - zone: DataCenter_basement_ZN_6
   min_vav_fraction: 0.5
@@ -14871,9 +14875,21 @@ plant_loops:
     sp_max: 82.2
     oa_low: -6.666667
     oa_high: 10.0
+# E+ CoolSys1: a primary loop (two constant-speed chiller branch pumps) serving an
+# UncontrolledOn ideal HeatExchanger:FluidToFluid, autosized to the primary flow,
+# that decouples it from the secondary loop (variable-speed demand-side pump and
+# the coils). Here: one decoupled loop, the secondary pump on the demand side, so
+# both primary pumps run whenever the loop runs, as E+ runs both branch pumps.
 - name: CHW Loop
   design_supply_temp: 6.67
   design_delta_t: 6.67
+  # SetpointManager:ReturnTemperature:ChilledWater on the primary loop: 6.7-10.22 C,
+  # return held at CHW-Loop-Ret-Temp-Schedule (10.2 C).
+  setpoint_reset:
+    type: return_temperature
+    sp_min: 6.7
+    sp_max: 10.22
+    return_target: 10.2
   supply_equipment:
   - type: pump
     name: CHW Primary Pump
@@ -14887,6 +14903,7 @@ plant_loops:
   - type: pump
     name: CHW Secondary Pump
     pump_type: variable_speed
+    loop_side: demand
     design_flow_rate: autosize
     design_head: 133527.825
     motor_efficiency: 0.9
@@ -14975,6 +14992,17 @@ plant_loops:
       - 0.536462254009109
       min_x: 0.0
       max_x: 1.0
+  # PlantEquipmentOperation:CoolingLoad: chiller 1 alone to 1.57 MW, both above;
+  # CoolSys1_Supply Load Distribution Scheme UniformLoad.
+  operation:
+    distribution: uniform
+    load_ranges:
+    - lower: 0.0
+      upper: 1570096.545
+      equipment: [CHW Chiller 1]
+    - lower: 1570096.545
+      upper: 1.0e14
+      equipment: [CHW Chiller 1, CHW Chiller 2]
 thermostats:
 - name: Office Thermostat
   zones:

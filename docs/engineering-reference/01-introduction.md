@@ -16,9 +16,9 @@ The reference has two further roles.
   physics, for energy conservation, or for a project requirement. This
   reference records which, and why.
 - **Equation review.** Each chapter is written from the code as it is, not
-  from the original design. Writing it is a full review of the engine's
-  equations and wiring. Discrepancies found while writing are filed as issues
-  rather than fixed in the documentation (@sec-review).
+  from the original design, so it doubles as a review of the engine's
+  equations and wiring. Discrepancies are filed as issues rather than fixed
+  in the documentation (@sec-review).
 
 The reference covers the engine (the Rust crates in `crates/`). It does not
 cover the YAML input format, which is defined by `docs/openbse_schema.json`
@@ -237,29 +237,24 @@ earlier.
 
 ## Status of this reference {#sec-status}
 
-Every chapter has been written from the code to the standards in @sec-how-to-read,
-in the review under issue
-[#181](https://github.com/bbrannon4/OpenBSE/issues/181). Each section gives the
-model as the code implements it, including where that is wrong or missing, and
-links the issue that tracks each problem. A linked issue may since have been
-fixed: that section then describes the fix (@sec-review).
+Every chapter is written from the code to the standards in @sec-how-to-read.
+Each section gives the model as the code implements it, including where that
+is incomplete, and links the open issue that tracks each known problem
+(@sec-review).
 
 ## Review process {#sec-review}
 
-When writing a section turns up a discrepancy, it is filed as a GitHub issue
-with the evidence and the section it came from, and linked from that
-section's *Known limitations*. The documentation is not changed to hide it,
-and the engine is not changed in the documentation pull request. A
-discrepancy is any of:
+A discrepancy found while writing or checking a section is filed as a GitHub
+issue with the evidence and the section it came from, and linked from that
+section's *Known limitations*. The documentation records the discrepancy
+rather than hiding it, and engine changes are made in their own pull requests.
+A discrepancy is any of:
 
 - an equation that is wrong;
 - code that does not do what its comments or intent say;
 - an undocumented deviation from EnergyPlus;
 - an input that is read but never used, or never read;
 - missing physics.
-
-Issue [#181](https://github.com/bbrannon4/OpenBSE/issues/181) keeps a running
-list of the issues filed by the review.
 
 **Keeping the reference current.** A change to a model's equations updates
 that model's section in the same pull request, including its comparison with

@@ -14,27 +14,28 @@ directory, so a relative script path in `command` resolves next to the model. Th
 newline-delimited JSON over its stdin and stdout. Each call writes
 
 ```json
-{"time_s": 3600.0, "dt_s": 600.0, "inputs": {"inlet_temp_c": 13.0}}
+{"time_s": 3600.0, "dt_s": 600.0, "iteration": 0, "warmup": false, "sizing": false,
+ "inputs": {"inlet_temp_c": 13.0}}
 ```
 
-and reads one line back, either `{"outputs": {...}}` or `{"error": "..."}`. When the
-component is dropped, OpenBSE writes `{"command":"stop"}` and waits for the child to exit.
+and reads one line back, either `{"outputs": {...}}` or `{"error": "..."}`. At the end of the
+run OpenBSE writes `{"command":"stop"}`, gives the child one second to exit, and then ends it.
 
-A child that cannot be started, or an exchange that fails (the child exits, closes its
-output or sends an unreadable line), stops the run with a severe error at the end of that
-timestep: the component's results would otherwise be missing from the energy and the
-loads.
-
-**Calls.** An exchange happens at every call to the component. That is every HVAC iteration
-(@sec-hvac-iteration), including warmup, with the same `time_s`, and no flag saying which
-call is final. A model with its own state must handle repeats itself
-([#262](https://github.com/bbrannon4/OpenBSE/issues/262)). A component with no flow, or a
-plant component with no load, isn't called.
+**Calls.** An exchange happens at every call to the component, which is every HVAC iteration
+(@sec-hvac-iteration). The exchanges of one timestep share `time_s`, and `iteration` counts
+them from 0; OpenBSE keeps the outputs of the last one. A model with its own state (a tank, a
+controller's integral term) evaluates each iteration from its state at the start of the step
+and commits that state when a request with a new `time_s` arrives. `warmup` is true while
+warmup repeats the first days of the run (@sec-warmup), so the same `time_s` values recur; a
+model resets or discards its state at the first request with `warmup` false. `sizing` marks
+design-day sizing calls. A component with no flow, or a plant component with no load, isn't
+called.
 
 ## Variables {#sec-cosim-variables}
 
-Both kinds send the variables named in `input_vars`. Unknown names are sent as 0 with a
-warning.
+Both kinds send the variables named in `inputs` and expect the ones named in `outputs`.
+Unknown names, and a list of outputs without the required ones, are severe errors when the
+model is read.
 
 : Co-simulation variables. {#tbl-cosim-vars}
 
@@ -45,29 +46,45 @@ warning.
 | Required outputs | `outlet_temp_c`, `outlet_humidity_ratio` | `supply_temp_c` |
 | Optional outputs | `outlet_mass_flow_kg_s`, `power_w`, `fuel_w`, `thermal_output_w` | `supply_flow_kg_s`, `power_w`, `fuel_w`, `thermal_output_w` |
 
-`load_request_w` is positive for heating and negative for cooling. Optional energy outputs
-default to 0 and flow outputs to the inlet flow. "Required" outputs that are missing fall
-back to the inlet value.
+`load_request_w` is the load the plant loop asks of the unit: positive for heating, negative
+for cooling and for a condenser loop's heat rejection. Every declared output must be in every
+response. Energy outputs left out of `outputs` count as 0, and flow outputs as the inlet flow.
 
-**Energy.** OpenBSE takes `power_w` and `fuel_w` as the component's energy, under an `Other`
-end use, and `thermal_output_w` as its heat. A plant component that leaves out
-`thermal_output_w` delivers nothing to the loop's accounting (@sec-plant-loop).
+**Energy.** OpenBSE takes `power_w` and `fuel_w` as the component's energy. The heat it gives
+the fluid comes from the returned state at the inlet flow, so the loop's and the air's energy
+balances close whatever the model reports:
+
+$$
+\dot{Q}_{plant} = \dot{m}_{w}\,c_{p,w}\,(T_{supply} - T_{return})
+\qquad
+\dot{Q}_{air} = \dot{m}_{a}\,(h_{out} - h_{in})
+$$ {#eq-cosim-heat}
+
+A reported `thermal_output_w` is a check on the model: if it differs from @eq-cosim-heat by
+more than 2 % (or 10 W), the run stops. The electricity goes to an end use by the component's
+name, as for other untyped components: a name with "chiller" or "cool" books
+to cooling, one with "fan" to fans, and anything else to Other.
 
 ## Failure handling {#sec-cosim-failure}
 
-If the child can't start, or an exchange fails or returns an error, OpenBSE logs an error
-and the component passes its inlet through with zero power, and the run continues. It has
-no timeout, so a child that hangs also hangs the run
-([#262](https://github.com/bbrannon4/OpenBSE/issues/262)).
+Each of these stops the run with a severe error at the end of that timestep, since the
+component's results would otherwise be missing from the energy and the loads:
+
+- the child can't be started, exits, or closes its output;
+- a response is not valid JSON, is an `error` reply, lacks a declared output, or holds a
+  number that is not finite;
+- a reported `thermal_output_w` disagrees with the outlet state;
+- no response arrives within the component's `timeout_s` (default 60 s). The child is then
+  ended, not asked to stop.
 
 **Comparison with EnergyPlus.** EnergyPlus couples through `ExternalInterface` (BCVTB and
-FMUs) and Python plugins, at defined points in its calling sequence and with warmup
-handling. OpenBSE's interface is simpler, and needs no library in the external model, but
-has none of those guarantees.
+FMUs) and Python plugins. `ExternalInterface` exchanges once per zone timestep, before the
+HVAC solution, so the external model's outputs are fixed while the HVAC iterates; a plugin
+runs at a chosen calling point. OpenBSE instead calls the external model inside the HVAC
+iteration, so an external unit takes part in the converged solution like a native one, and
+the `iteration` and `warmup` fields give a stateful model what it needs to stay consistent.
+It needs no library in the external model.
 
 ## Known limitations {#sec-cosim-limitations}
 
-- [#262](https://github.com/bbrannon4/OpenBSE/issues/262): an exchange per iteration with
-  no flag; failures pass through; outputs unchecked; no timeout.
-- [#169](https://github.com/bbrannon4/OpenBSE/issues/169): the `cosim_chiller` example never
-  runs its external model.
+- An external component has no `end_use` input; its electricity is booked by its name.

@@ -1,8 +1,10 @@
 """
 Co-simulation chiller: replaces the native OpenBSE Chiller component.
 
-Receives chilled water loop conditions from OpenBSE each timestep via stdin
-and returns supply conditions plus power draw to stdout.
+Receives chilled water loop conditions from OpenBSE on stdin and returns
+supply conditions plus power draw on stdout. OpenBSE calls it once per HVAC
+iteration; the model has no state, so repeated calls within a timestep need
+no special handling.
 
 Physics
 -------
@@ -43,7 +45,7 @@ def cop_at_conditions(outdoor_temp_c: float, plr: float) -> float:
 
 
 def step(inputs: dict, _time_s: float, _dt_s: float) -> dict:
-    load_w = inputs["load_request_w"]          # positive = cooling requested [W]
+    load_w = -inputs["load_request_w"]         # cooling asked of the chiller [W] (sent negative)
     return_temp_c = inputs["return_temp_c"]    # entering chilled water temp [°C]
     flow_kg_s = inputs["return_flow_kg_s"]     # chilled water mass flow [kg/s]
     outdoor_temp_c = inputs["outdoor_temp_c"]  # outdoor dry-bulb [°C]

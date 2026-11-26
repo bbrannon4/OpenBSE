@@ -601,6 +601,11 @@ pub struct ZoneInput {
     /// Thermostat schedule for time-of-day setpoint changes
     #[serde(default)]
     pub thermostat_schedule: Vec<ThermostatScheduleEntry>,
+    /// Heating and cooling setpoint schedule names from the zone's thermostat
+    /// (`heating_setpoint_schedule`, `cooling_setpoint_schedule`), set when the
+    /// model is resolved.
+    #[serde(skip)]
+    pub setpoint_schedules: (Option<String>, Option<String>),
     /// Ventilation schedule for time-based mechanical ventilation
     #[serde(default)]
     pub ventilation_schedule: Vec<VentilationScheduleEntry>,
@@ -638,6 +643,19 @@ pub struct ZoneInput {
     /// No limit if None (default).
     #[serde(default)]
     pub min_relative_humidity: Option<f64>,
+    /// Lower limit on the zone's design cooling air flow, per floor area
+    /// [m³/s·m²] (E+ `Sizing:Zone` Cooling Design Air Flow Method
+    /// DesignDayWithLimit, Cooling Minimum Air Flow per Zone Floor Area): the
+    /// design flow, and every hour of the design-day flow sequence, is at least
+    /// this times the floor area. Codes set it for air-change minimums
+    /// (operating rooms, patient rooms). None (default): no limit.
+    #[serde(default)]
+    pub minimum_cooling_flow_per_area: Option<f64>,
+    /// Lower limit on the zone's design cooling air flow [m³/s] (E+
+    /// DesignDayWithLimit, Cooling Minimum Air Flow). The larger of the two
+    /// limits applies. None (default): no limit.
+    #[serde(default)]
+    pub minimum_cooling_flow: Option<f64>,
     /// Cap the zone air humidity ratio at saturation for the zone temperature,
     /// condensing out the excess (default: true, as EnergyPlus's
     /// CorrectZoneHumRat does unconditionally). Matters for a sealed zone that
@@ -868,7 +886,8 @@ pub struct DataCenterConfig {
     /// from rack temperature difference.
     #[serde(default)]
     pub airflow_m3_per_s_per_kw: Option<f64>,
-    /// Lighting power density inside the data center [W/m²] (default 5.0)
+    /// Lighting power density inside the data center [W/m²]; no lights when
+    /// omitted.
     #[serde(default)]
     pub lighting_w_per_m2: Option<f64>,
 }
@@ -961,6 +980,15 @@ impl ZoneInput {
 
     /// Design supply outdoor-air flow of one zone instance [m³/s], if it has an
     /// outdoor-air requirement.
+    /// The lower limit on the zone's design cooling air flow [m³/s], the larger
+    /// of `minimum_cooling_flow_per_area` x floor area and
+    /// `minimum_cooling_flow`; 0 without either (E+ DesignDayWithLimit,
+    /// `ZoneEquipmentManager` DesCoolMinAirFlow / DesCoolMinAirFlow2).
+    pub fn minimum_design_cooling_flow(&self) -> f64 {
+        let per_area = self.minimum_cooling_flow_per_area.unwrap_or(0.0) * self.floor_area;
+        per_area.max(self.minimum_cooling_flow.unwrap_or(0.0))
+    }
+
     pub fn design_outdoor_air_flow(&self) -> Option<f64> {
         let oa = self.outdoor_air.as_ref()?;
         Some(oa.supply_flow(self.design_people(), self.floor_area, self.volume))
@@ -972,7 +1000,30 @@ impl ZoneInput {
     /// If a thermostat schedule is defined, returns the setpoints for the
     /// first matching period. Otherwise, returns the ideal_loads default
     /// setpoints (or 20/27 if no ideal loads).
-    pub fn active_setpoints(&self, hour: u32, day_of_year: u32) -> (f64, f64) {
+    ///
+    /// A setpoint schedule from the zone's thermostat (`setpoint_schedules`)
+    /// overrides its side, read for `day_of_week` (8 = holiday) from
+    /// `schedules`.
+    pub fn active_setpoints(
+        &self,
+        hour: u32,
+        day_of_year: u32,
+        day_of_week: u32,
+        schedules: &crate::schedule::ScheduleManager,
+    ) -> (f64, f64) {
+        let (heat, cool) = self.base_setpoints(hour, day_of_year);
+        let read = |name: &Option<String>, base: f64| {
+            name.as_deref()
+                .and_then(|n| schedules.value_doy(n, hour, day_of_week, day_of_year))
+                .unwrap_or(base)
+        };
+        (
+            read(&self.setpoint_schedules.0, heat),
+            read(&self.setpoint_schedules.1, cool),
+        )
+    }
+
+    fn base_setpoints(&self, hour: u32, day_of_year: u32) -> (f64, f64) {
         // Check thermostat schedule first
         if let Some(entry) = self
             .thermostat_schedule
@@ -1139,6 +1190,9 @@ pub struct ZoneState {
     /// (radiant panels, #167) hold this timestep's setpoint, which may differ
     /// from the one the solve used.
     pub ideal_load_line: IdealLoadLine,
+    /// The zone's moisture load to a humidity ratio, from the latest moisture
+    /// solve without the supply air (E+ `ZoneSysMoistureDemand`).
+    pub moisture_load_line: MoistureLoadLine,
     /// Actual HVAC heating energy rate [W] (after capacity limits)
     pub hvac_heating_rate: f64,
     /// Actual HVAC cooling energy rate [W] (after capacity limits)
@@ -1147,10 +1201,13 @@ pub struct ZoneState {
     pub q_internal_conv: f64,
     /// Total radiative internal gains [W]
     pub q_internal_rad: f64,
-    /// Lighting electric power [W] (scheduled)
+    /// Lighting electric power [W] (scheduled, dimmed by daylighting)
     pub lighting_power: f64,
-    /// Equipment electric power [W] (scheduled)
-    pub equipment_power: f64,
+    /// Lighting power multiplier from the zone's daylighting controls (1
+    /// without daylighting).
+    pub daylight_lights_factor: f64,
+    /// Equipment and baseboard power by fuel group [W] (scheduled)
+    pub equipment_power: crate::internal_gains::FuelPowers,
     /// People sensible heat [W] (scheduled)
     pub people_heat: f64,
     /// Infiltration mass flow rate [kg/s]
@@ -1407,12 +1464,14 @@ impl ZoneState {
             ideal_heating_load: 0.0,
             load_to_heating_setpoint: 0.0,
             ideal_load_line: IdealLoadLine::default(),
+            moisture_load_line: MoistureLoadLine::default(),
             hvac_heating_rate: 0.0,
             hvac_cooling_rate: 0.0,
             q_internal_conv: 0.0,
             q_internal_rad: 0.0,
             lighting_power: 0.0,
-            equipment_power: 0.0,
+            daylight_lights_factor: 1.0,
+            equipment_power: Default::default(),
             people_heat: 0.0,
             infiltration_mass_flow: 0.0,
             ventilation_mass_flow: 0.0,
@@ -1651,6 +1710,27 @@ pub fn mix_advective_streams(m1: f64, x1: f64, m2: f64, x2: f64) -> (f64, f64) {
     (m, (m1 * x1 + m2 * x2) / m)
 }
 
+/// A zone's moisture load to a target humidity ratio from the latest moisture
+/// solve: the moisture balance of `solve_zone_humidity` without the supply air,
+/// solved for the supply's moisture. Delivering `at(W)` [kg/s] lands the zone
+/// on `W` this timestep (E+ `ZoneAirMoisturePredictorCorrector`,
+/// `OutputRequiredToHumidifyingSP`).
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct MoistureLoadLine {
+    /// Moisture capacitance plus advective inflow, ρV/Δt_eff + ṁ_outdoor [kg/s].
+    pub slope: f64,
+    /// ρV/Δt_eff·W_history + ṁ_outdoor·W_outdoor + latent moisture [kg/s].
+    pub driving: f64,
+}
+
+impl MoistureLoadLine {
+    /// Moisture the supply must add to bring the zone to `w_target` [kg/s];
+    /// negative when the zone would rise above it without the supply.
+    pub fn at(&self, w_target: f64) -> f64 {
+        self.slope * w_target - self.driving
+    }
+}
+
 /// A zone's load to setpoint from the latest envelope solve, as a function of
 /// the target temperature: the zone air balance solved for the HVAC load, with
 /// the same backward-difference storage term as the zone solve. Delivering
@@ -1834,6 +1914,7 @@ mod tests {
             internal_mass: vec![],
             ideal_loads: None,
             thermostat_schedule: vec![],
+            setpoint_schedules: (None, None),
             ventilation_schedule: vec![],
             solar_distribution: None,
             exhaust_fan: None,
@@ -1844,6 +1925,8 @@ mod tests {
             limit_humidity_to_saturation: false,
             max_relative_humidity: None,
             min_relative_humidity: None,
+            minimum_cooling_flow_per_area: None,
+            minimum_cooling_flow: None,
             data_center: None,
             duct_leakage: None,
             species_generation: vec![],
@@ -1932,6 +2015,7 @@ mod tests {
             internal_mass: vec![],
             ideal_loads: None,
             thermostat_schedule: vec![],
+            setpoint_schedules: (None, None),
             ventilation_schedule: vec![],
             solar_distribution: None,
             exhaust_fan: None,
@@ -1942,6 +2026,8 @@ mod tests {
             limit_humidity_to_saturation: false,
             max_relative_humidity: None,
             min_relative_humidity: None,
+            minimum_cooling_flow_per_area: None,
+            minimum_cooling_flow: None,
             data_center: None,
             duct_leakage: None,
             species_generation: vec![],
@@ -2206,6 +2292,7 @@ mod tests {
                 end_month: None,
                 end_day: None,
             }],
+            setpoint_schedules: (None, None),
             ventilation_schedule: vec![],
             solar_distribution: None,
             exhaust_fan: None,
@@ -2216,6 +2303,8 @@ mod tests {
             limit_humidity_to_saturation: false,
             max_relative_humidity: None,
             min_relative_humidity: None,
+            minimum_cooling_flow_per_area: None,
+            minimum_cooling_flow: None,
             data_center: None,
             duct_leakage: None,
             species_generation: vec![],
@@ -2227,12 +2316,12 @@ mod tests {
         };
 
         // During night setback
-        let (h, c) = input.active_setpoints(3, 1);
+        let (h, c) = input.active_setpoints(3, 1, 1, &crate::schedule::ScheduleManager::new());
         assert_relative_eq!(h, 10.0);
         assert_relative_eq!(c, 99.0);
 
         // During day (falls through to ideal_loads defaults)
-        let (h, c) = input.active_setpoints(12, 1);
+        let (h, c) = input.active_setpoints(12, 1, 1, &crate::schedule::ScheduleManager::new());
         assert_relative_eq!(h, 20.0);
         assert_relative_eq!(c, 27.0);
     }
@@ -2271,6 +2360,7 @@ mod tests {
 
             ideal_loads: None,
             thermostat_schedule: vec![],
+            setpoint_schedules: (None, None),
             ventilation_schedule: vec![VentilationScheduleEntry {
                 start_hour: 18,
                 end_hour: 7,
@@ -2288,6 +2378,8 @@ mod tests {
             limit_humidity_to_saturation: false,
             max_relative_humidity: None,
             min_relative_humidity: None,
+            minimum_cooling_flow_per_area: None,
+            minimum_cooling_flow: None,
             data_center: None,
             duct_leakage: None,
             species_generation: vec![],
@@ -2318,6 +2410,7 @@ mod tests {
 
             ideal_loads: None,
             thermostat_schedule: vec![],
+            setpoint_schedules: (None, None),
             ventilation_schedule: vec![VentilationScheduleEntry {
                 start_hour: 18,
                 end_hour: 7,
@@ -2335,6 +2428,8 @@ mod tests {
             limit_humidity_to_saturation: false,
             max_relative_humidity: None,
             min_relative_humidity: None,
+            minimum_cooling_flow_per_area: None,
+            minimum_cooling_flow: None,
             data_center: None,
             duct_leakage: None,
             species_generation: vec![],

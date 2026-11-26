@@ -11,13 +11,10 @@
 //! These are used to size zone-level equipment (VAV boxes, fan coils, etc.).
 //!
 //! ## Stage 2: System Sizing
-//! With zone equipment hard-sized from Stage 1:
-//!   1. Re-run each design day with zone airflows set to design values
-//!   2. At each timestep, sum all zone loads (coincident peak)
-//!   3. System capacity = max coincident sum across all hours and design days
+//! From the same design-day runs, sum the zone loads at each timestep; the
+//! largest sum over all hours and design days is the coincident peak.
 //!
-//! Results: system heating/cooling capacity, system airflow.
-//! These are used to size AHU coils, fans, and central plant equipment.
+//! Results: coincident peak heating/cooling loads, system airflow.
 //!
 //! Reference: ASHRAE Handbook — Fundamentals, Chapter 18 (Nonresidential
 //! Cooling and Heating Load Calculations).
@@ -162,9 +159,16 @@ fn design_step_weather(
     wh
 }
 
+/// Opaque sky cover of every design day [tenths]: clear, as E+
+/// `SetUpDesignDay` sets it for a day without rain. With no horizontal
+/// infrared given, the sky temperature then comes from the clear-sky
+/// emissivity alone, the long-wave loss a cold clear night imposes.
+const DESIGN_DAY_SKY_COVER: f64 = 0.0;
+
 /// Generate 24 synthetic WeatherHour entries for a heating design day.
 ///
-/// Heating design days have no solar radiation and the specified wind speed.
+/// Heating design days have no solar radiation, a clear sky and the specified
+/// wind speed.
 fn generate_heating_design_weather(dd: &DesignDayInput) -> Vec<WeatherHour> {
     let mut hours = Vec::with_capacity(24);
     for h in 1..=24u32 {
@@ -182,7 +186,7 @@ fn generate_heating_design_weather(dd: &DesignDayInput) -> Vec<WeatherHour> {
             diffuse_horiz_rad: 0.0,
             wind_speed: dd.wind_speed,
             wind_direction: 0.0,
-            opaque_sky_cover: 10.0,
+            opaque_sky_cover: DESIGN_DAY_SKY_COVER,
             horiz_ir_rad: 0.0, // missing: the sky comes from the emissivity model
         };
         set_design_humidity(&mut wh, dd);
@@ -237,8 +241,8 @@ fn generate_cooling_design_weather(dd: &DesignDayInput, latitude: f64) -> Vec<We
             diffuse_horiz_rad: diffuse.max(0.0),
             wind_speed: dd.wind_speed,
             wind_direction: 0.0,
-            opaque_sky_cover: 1.0, // clear sky for cooling design
-            horiz_ir_rad: 0.0,     // missing: the sky comes from the emissivity model
+            opaque_sky_cover: DESIGN_DAY_SKY_COVER,
+            horiz_ir_rad: 0.0, // missing: the sky comes from the emissivity model
         };
         set_design_humidity(&mut wh, dd);
         hours.push(wh);
@@ -259,6 +263,150 @@ pub fn is_cooling_design_day(dd: &DesignDayInput) -> bool {
 
 /// Heating and cooling supply temperatures of a zone with no air loop [°C].
 const DEFAULT_SUPPLY_TEMPS: (f64, f64) = (35.0, 13.0);
+
+/// Heating and cooling design supply humidity ratios of a zone with no air
+/// loop [kg/kg], E+ prototypes' usual `Sizing:Zone` values.
+const DEFAULT_SUPPLY_HUMIDITY: (f64, f64) = (0.008, 0.008);
+/// Smallest supply-to-zone temperature difference a design flow is
+/// computed with [K], so a supply barely warmer (cooler) than the zone does
+/// not size an unbounded flow.
+const MIN_HEATING_SUPPLY_DT: f64 = 5.0;
+const MIN_COOLING_SUPPLY_DT: f64 = 3.0;
+
+/// How a zone's sizing loads on one side become supply-air flows.
+#[derive(Debug, Clone, Copy)]
+struct FlowBasis {
+    heating: bool,
+    /// Design supply temperature [°C]
+    t_supply: f64,
+    /// Specific heat at the design supply humidity [J/(kg·K)]
+    cp: f64,
+    /// Smallest supply-to-zone temperature difference [K]
+    min_dt: f64,
+}
+
+impl FlowBasis {
+    /// Supply flow [kg/s] that delivers `load` [W] to a zone at `t_zone`.
+    fn flow(&self, load: f64, t_zone: f64) -> f64 {
+        if load <= 0.0 {
+            return 0.0;
+        }
+        let dt = if self.heating {
+            self.t_supply - t_zone
+        } else {
+            t_zone - self.t_supply
+        };
+        load / (self.cp * dt.max(self.min_dt))
+    }
+}
+
+/// A zone's design load [W] and flow [kg/s] on one side of one design day,
+/// before the sizing factor, and the timestep and hour they come from.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct DesignPeak {
+    load: f64,
+    flow: f64,
+    hour: u32,
+}
+
+/// One zone's loads and flows on one side of a design day, each averaged
+/// over the preceding `window` timesteps, wrapping round the day.
+fn averaged_loads_and_flows(
+    run: &DesignDayRun,
+    zone: &str,
+    basis: FlowBasis,
+    window: usize,
+) -> (Vec<f64>, Vec<f64>) {
+    let (loads, flows): (Vec<f64>, Vec<f64>) = run
+        .steps
+        .iter()
+        .zip(&run.step_temps)
+        .map(|((_, step), temps)| {
+            let (hl, cl) = step.get(zone).copied().unwrap_or((0.0, 0.0));
+            let q = if basis.heating { hl } else { cl };
+            let t = temps.get(zone).copied().unwrap_or(basis.t_supply);
+            (q, basis.flow(q, t))
+        })
+        .unzip();
+    (
+        moving_average(&loads, window),
+        moving_average(&flows, window),
+    )
+}
+
+/// `values` averaged over the preceding `window` entries, wrapping round, as
+/// E+ `General::MovingAvg`.
+fn moving_average(values: &[f64], window: usize) -> Vec<f64> {
+    let n = values.len();
+    let window = window.clamp(1, n.max(1));
+    (0..n)
+        .map(|k| (0..window).map(|j| values[(k + n - j) % n]).sum::<f64>() / window as f64)
+        .collect()
+}
+
+/// A zone's design load and flow from one design day: the largest averaged
+/// load (its first timestep) and the averaged flow there.
+fn design_day_peak(run: &DesignDayRun, zone: &str, basis: FlowBasis, window: usize) -> DesignPeak {
+    let (loads, flows) = averaged_loads_and_flows(run, zone, basis, window);
+    let mut peak = DesignPeak {
+        load: 0.0,
+        flow: 0.0,
+        hour: 0,
+    };
+    for (k, (&load, &flow)) in loads.iter().zip(&flows).enumerate() {
+        if load > peak.load {
+            peak = DesignPeak {
+                load,
+                flow,
+                hour: run.steps[k].0,
+            };
+        }
+    }
+    peak
+}
+
+/// A zone's design load and flow over the design days of one kind, with the
+/// day they come from: the day needing the most flow, else (no day needs any)
+/// the one with the largest load, as E+ chooses its final zone sizing day.
+fn design_peak(
+    runs: &[(String, DesignDayRun)],
+    zone: &str,
+    basis: FlowBasis,
+    window: usize,
+) -> Option<(String, DesignPeak)> {
+    let mut best: Option<(String, DesignPeak)> = None;
+    for (name, run) in runs {
+        let peak = design_day_peak(run, zone, basis, window);
+        let better = match &best {
+            None => peak.load > 0.0,
+            Some((_, b)) => peak.flow > b.flow || (peak.flow == b.flow && peak.load > b.load),
+        };
+        if better {
+            best = Some((name.clone(), peak));
+        }
+    }
+    best
+}
+
+/// A zone's flow at each hour of a design day: the averaged flow at the
+/// timestep with the hour's largest averaged load, in the order of
+/// `run.loads`.
+fn hourly_flows(run: &DesignDayRun, zone: &str, basis: FlowBasis, window: usize) -> Vec<f64> {
+    let (loads, flows) = averaged_loads_and_flows(run, zone, basis, window);
+    let mut hourly: Vec<(u32, f64, f64)> = Vec::new();
+    for (k, (hour, _)) in run.steps.iter().enumerate() {
+        match hourly.last_mut() {
+            Some((h, load, flow)) if h == hour => {
+                if loads[k] > *load {
+                    *load = loads[k];
+                    *flow = flows[k];
+                }
+            }
+            _ => hourly.push((*hour, loads[k], flows[k])),
+        }
+    }
+    hourly.into_iter().map(|(_, _, flow)| flow).collect()
+}
 
 /// Zone setpoints held during sizing, from the thermostats.
 #[derive(Debug, Default)]
@@ -291,6 +439,17 @@ struct ReturnHeatPaths<'a> {
     supply_temps: &'a HashMap<String, (f64, f64)>,
 }
 
+/// The (heating, cooling) setpoints a zone is held between on a design day:
+/// the design day's own setpoint `sp` on its side, and the thermostat's other
+/// setpoint `off` beyond it (no wider than `sp` itself), else `sp` on both.
+fn design_day_dual_setpoints(is_heating_dd: bool, sp: f64, off: Option<f64>) -> (f64, f64) {
+    if is_heating_dd {
+        (sp, off.map_or(sp, |c| c.max(sp)))
+    } else {
+        (off.map_or(sp, |h| h.min(sp)), sp)
+    }
+}
+
 /// Run a single design day through the envelope with ideal HVAC holding
 /// zones at their setpoint temperature, returning per-zone loads at each hour.
 ///
@@ -300,6 +459,7 @@ fn run_single_design_day(
     dd: &DesignDayInput,
     weather_hours: &[WeatherHour],
     zone_setpoints: &HashMap<String, f64>, // setpoint to hold zone at
+    off_setpoints: &HashMap<String, f64>,  // the other side's setpoint
     zone_hourly_setpoints: &HashMap<String, Vec<f64>>, // per-zone hourly override
     oa_handled_by_hvac: &HashMap<String, bool>,
     return_paths: ReturnHeatPaths,
@@ -344,18 +504,32 @@ fn run_single_design_day(
         .iter()
         .map(|z| z.input.ideal_loads.clone())
         .collect();
+    // A thermostat's setpoint schedules hold the run's setpoints; a design day
+    // holds its own (`design_day_*_setpoints`), as E+ reads the schedules'
+    // design-day day types, so they are set aside while sizing.
+    let original_setpoint_schedules: Vec<(Option<String>, Option<String>)> = env
+        .zones
+        .iter_mut()
+        .map(|z| std::mem::take(&mut z.input.setpoint_schedules))
+        .collect();
 
+    // The zone floats between its heating and cooling setpoints, as E+ zone
+    // sizing holds the thermostat's dual setpoints: the design day sets its
+    // own side, the thermostat's setpoint the other.
     for zone in &mut env.zones {
         if zone.input.conditioned && zone.input.ideal_loads.is_none() {
             let sp = zone_setpoints
                 .get(&zone.input.name)
                 .copied()
                 .unwrap_or(21.0);
+            let off = off_setpoints.get(&zone.input.name).copied();
+            let (heating_setpoint, cooling_setpoint) =
+                design_day_dual_setpoints(is_heating_dd, sp, off);
             zone.input.ideal_loads = Some(IdealLoadsAirSystem {
                 heating_capacity: 1_000_000.0,
                 cooling_capacity: 1_000_000.0,
-                heating_setpoint: sp,
-                cooling_setpoint: sp,
+                heating_setpoint,
+                cooling_setpoint,
             });
         }
     }
@@ -381,6 +555,7 @@ fn run_single_design_day(
 
     // The last day's loads at every timestep, for the moving average.
     let mut last_day_steps: StepLoads = Vec::new();
+    let mut last_day_temps: Vec<HashMap<String, f64>> = Vec::new();
     let mut last_day_hours: Vec<SizingHour> = Vec::new();
     let tph = steps.per_hour.max(1);
     let dt = 3600.0 / tph as f64;
@@ -392,6 +567,7 @@ fn run_single_design_day(
         let day_num = days_run;
         days_run += 1;
         last_day_steps.clear();
+        last_day_temps.clear();
         last_day_hours.clear();
         let mut this_day: HashMap<String, DayExtremes> = HashMap::new();
 
@@ -462,6 +638,7 @@ fn run_single_design_day(
                 // No supply air — ideal loads handles HVAC directly. The envelope
                 // puts lighting return-air heat in the zone air when no return
                 // carries it; on loops whose return would, take it back out.
+                env.update_daylighting(&ctx, wh);
                 let mut return_heat: HashMap<String, f64> = env
                     .lighting_return_air_gains(&ctx)
                     .into_iter()
@@ -497,6 +674,12 @@ fn run_single_design_day(
                     })
                     .collect();
                 last_day_steps.push((hour, step_loads));
+                last_day_temps.push(
+                    env.zones
+                        .iter()
+                        .map(|z| (z.input.name.clone(), z.temp))
+                        .collect(),
+                );
                 if sub + 1 == tph {
                     last_day_hours.push(sizing_hour(
                         env,
@@ -526,9 +709,18 @@ fn run_single_design_day(
     for (zone, orig) in env.zones.iter_mut().zip(original_ideal_loads.into_iter()) {
         zone.input.ideal_loads = orig;
     }
+    for (zone, orig) in env
+        .zones
+        .iter_mut()
+        .zip(original_setpoint_schedules.into_iter())
+    {
+        zone.input.setpoint_schedules = orig;
+    }
 
     DesignDayRun {
         loads: hourly_peaks_of_averaged_loads(&last_day_steps, steps.averaging_window),
+        steps: last_day_steps,
+        step_temps: last_day_temps,
         hours: last_day_hours,
     }
 }
@@ -641,7 +833,12 @@ fn sizing_hour(
 
 /// What one design day's sizing run yields.
 struct DesignDayRun {
+    /// Each hour's peak averaged loads.
     loads: StepLoads,
+    /// The last day's loads at every timestep, before averaging.
+    steps: StepLoads,
+    /// Each zone's air temperature at the end of every timestep [°C].
+    step_temps: Vec<HashMap<String, f64>>,
     hours: Vec<SizingHour>,
 }
 
@@ -745,6 +942,7 @@ fn run_zone_sizing(
     design_days: &[DesignDayInput],
     setpoints: &SizingSetpoints,
     zone_supply_temps: &HashMap<String, (f64, f64)>,
+    zone_supply_humidity: &HashMap<String, (f64, f64)>,
     latitude: f64,
     heating_sizing_factor: f64,
     cooling_sizing_factor: f64,
@@ -752,9 +950,7 @@ fn run_zone_sizing(
     return_air_zones: &HashSet<String>,
     steps: SizingSteps,
     sizing_fan_delta_t: f64,
-) -> ZoneSizingResult {
-    let cp_air = 1005.0;
-
+) -> (ZoneSizingResult, SystemSizingResult) {
     let mut zone_peak_heating: HashMap<String, f64> = HashMap::new();
     let mut zone_peak_cooling: HashMap<String, f64> = HashMap::new();
     let mut zone_heating_dd: HashMap<String, String> = HashMap::new();
@@ -795,6 +991,7 @@ fn run_zone_sizing(
                 dd,
                 &weather_hours,
                 &setpoints.heating,
+                &setpoints.cooling,
                 &setpoints.dd_heating,
                 oa_handled_by_hvac,
                 ReturnHeatPaths {
@@ -806,20 +1003,6 @@ fn run_zone_sizing(
             (dd.name.clone(), loads)
         })
         .collect();
-
-    // Merge heating peaks from all parallel results
-    for (dd_name, run) in &heating_results {
-        for (hour, zone_loads) in &run.loads {
-            for (zone_name, &(hl, _cl)) in zone_loads {
-                let current_peak = zone_peak_heating.get(zone_name).copied().unwrap_or(0.0);
-                if hl > current_peak {
-                    zone_peak_heating.insert(zone_name.clone(), hl);
-                    zone_heating_dd.insert(zone_name.clone(), dd_name.clone());
-                    zone_heating_peak_hour.insert(zone_name.clone(), *hour);
-                }
-            }
-        }
-    }
 
     // ── Run ALL cooling design days (in parallel) ────────────────────────
     let cooling_dds: Vec<_> = design_days
@@ -841,6 +1024,7 @@ fn run_zone_sizing(
                 dd,
                 &weather_hours,
                 &setpoints.cooling,
+                &setpoints.heating,
                 &setpoints.dd_cooling,
                 oa_handled_by_hvac,
                 ReturnHeatPaths {
@@ -853,18 +1037,84 @@ fn run_zone_sizing(
         })
         .collect();
 
-    // Merge cooling peaks from all parallel results
-    for (dd_name, run) in &cooling_results {
-        for (hour, zone_loads) in &run.loads {
-            for (zone_name, &(_hl, cl)) in zone_loads {
-                let current_peak = zone_peak_cooling.get(zone_name).copied().unwrap_or(0.0);
-                if cl > current_peak {
-                    zone_peak_cooling.insert(zone_name.clone(), cl);
-                    zone_cooling_dd.insert(zone_name.clone(), dd_name.clone());
-                    zone_cooling_peak_hour.insert(zone_name.clone(), *hour);
-                }
-            }
+    // ── Design loads and flows, per zone and design day ─────────────────
+    //
+    // As E+ (`sizeZoneSpaceEquipmentPart1`, `updateZoneSizingEndDay`): each
+    // timestep's load becomes a flow with that timestep's zone temperature and
+    // the specific heat at the design supply humidity; loads and flows are
+    // averaged over the window; the design load is the largest averaged load
+    // and the design flow the averaged flow at that timestep. Of several design
+    // days, the one needing the most flow sets both (`updateZoneSizingEndZoneSizingCalc`).
+    let site_p = design_days.first().map(|d| d.pressure).unwrap_or(101325.0);
+    let rho_site = site_p / (287.042 * 293.15);
+    let window = steps.averaging_window;
+    let mut zone_heating_airflow: HashMap<String, f64> = HashMap::new();
+    let mut zone_cooling_airflow: HashMap<String, f64> = HashMap::new();
+    let mut zone_design_airflow: HashMap<String, f64> = HashMap::new();
+    // Per zone: cooling flow basis and flow floor (outdoor air, minimum design
+    // cooling flow) [kg/s], to turn its design-day loads into the hourly flows
+    // of coincident sizing.
+    let mut cool_flow_basis: HashMap<String, (FlowBasis, f64)> = HashMap::new();
+
+    for zone in &env.zones {
+        let name = &zone.input.name;
+        let (heating_supply_temp, cooling_supply_temp) = zone_supply_temps
+            .get(name)
+            .copied()
+            .unwrap_or(DEFAULT_SUPPLY_TEMPS);
+        let (w_heat, w_cool) = zone_supply_humidity
+            .get(name)
+            .copied()
+            .unwrap_or(DEFAULT_SUPPLY_HUMIDITY);
+        let heat_basis = FlowBasis {
+            heating: true,
+            t_supply: heating_supply_temp,
+            cp: psych::cp_air_fn_w(w_heat),
+            min_dt: MIN_HEATING_SUPPLY_DT,
+        };
+        // sizing_fan_delta_t adds the fan's temperature rise to the cooling
+        // supply temperature during sizing only.
+        let cool_basis = FlowBasis {
+            heating: false,
+            t_supply: cooling_supply_temp + sizing_fan_delta_t,
+            cp: psych::cp_air_fn_w(w_cool),
+            min_dt: MIN_COOLING_SUPPLY_DT,
+        };
+
+        let heat = design_peak(&heating_results, name, heat_basis, window);
+        let cool = design_peak(&cooling_results, name, cool_basis, window);
+        if let Some((dd, peak)) = &heat {
+            zone_peak_heating.insert(name.clone(), peak.load);
+            zone_heating_dd.insert(name.clone(), dd.clone());
+            zone_heating_peak_hour.insert(name.clone(), peak.hour);
         }
+        if let Some((dd, peak)) = &cool {
+            zone_peak_cooling.insert(name.clone(), peak.load);
+            zone_cooling_dd.insert(name.clone(), dd.clone());
+            zone_cooling_peak_hour.insert(name.clone(), peak.hour);
+        }
+
+        // The zone's minimum outdoor-air flow is a floor on both design
+        // flows, as in E+ (UpdateZoneSizing). The OA load itself is not part
+        // of the zone load: the central coil meets it at the mixed-air state.
+        let m_oa = zone
+            .input
+            .design_outdoor_air_flow()
+            .map_or(0.0, |v_oa| v_oa * rho_site);
+        // The zone's minimum design cooling flow (air-change limits) is a
+        // floor on the cooling flow like the outdoor air, at the same standard
+        // density, as E+ DesignDayWithLimit raises DesCoolVolFlow and every
+        // CoolFlowSeq step to max(DesCoolMinAirFlow, DesCoolMinAirFlow2, MinOA).
+        let m_cool_floor = m_oa.max(zone.input.minimum_design_cooling_flow() * rho_site);
+        let m_heat = (heating_sizing_factor * heat.as_ref().map_or(0.0, |(_, p)| p.flow)).max(m_oa);
+        let m_cool =
+            (cooling_sizing_factor * cool.as_ref().map_or(0.0, |(_, p)| p.flow)).max(m_cool_floor);
+        let m_design = m_heat.max(m_cool).max(0.01); // minimum 0.01 kg/s
+
+        zone_heating_airflow.insert(name.clone(), m_heat);
+        zone_cooling_airflow.insert(name.clone(), m_cool);
+        zone_design_airflow.insert(name.clone(), m_design);
+        cool_flow_basis.insert(name.clone(), (cool_basis, m_cool_floor));
     }
 
     // Everything here is for one instance of a multiplied zone, because that is
@@ -881,79 +1131,23 @@ fn run_zone_sizing(
         .values_mut()
         .for_each(|q| *q *= cooling_sizing_factor);
 
-    // ── Calculate zone airflows from peak loads ─────────────────────────
-    let mut zone_heating_airflow: HashMap<String, f64> = HashMap::new();
-    let mut zone_cooling_airflow: HashMap<String, f64> = HashMap::new();
-    let mut zone_design_airflow: HashMap<String, f64> = HashMap::new();
-    // Per zone: cooling ΔT and outdoor-air floor [kg/s], to turn
-    // its hourly design-day loads into flows.
-    let mut cool_flow_basis: HashMap<String, (f64, f64)> = HashMap::new();
-
-    for zone in &env.zones {
-        let name = &zone.input.name;
-        let heat_sp = setpoints.heating.get(name).copied().unwrap_or(21.0);
-        let cool_sp = setpoints.cooling.get(name).copied().unwrap_or(24.0);
-        let (heating_supply_temp, cooling_supply_temp) = zone_supply_temps
-            .get(name)
-            .copied()
-            .unwrap_or(DEFAULT_SUPPLY_TEMPS);
-
-        let heat_load = zone_peak_heating.get(name).copied().unwrap_or(0.0);
-        let cool_load = zone_peak_cooling.get(name).copied().unwrap_or(0.0);
-
-        // The zone's minimum outdoor-air flow is a floor on both design
-        // flows, as in E+ (UpdateZoneSizing). The OA load itself is not part
-        // of the zone load: the central coil meets it at the mixed-air state.
-        let site_p = design_days.first().map(|d| d.pressure).unwrap_or(101325.0);
-        let rho_site = site_p / (287.042 * 293.15);
-        let m_oa = zone
-            .input
-            .design_outdoor_air_flow()
-            .map_or(0.0, |v_oa| v_oa * rho_site);
-
-        // Heating airflow: Q = m_dot * Cp * (T_supply - T_zone)
-        let dt_heating = (heating_supply_temp - heat_sp).max(5.0);
-        let m_heat = if heat_load > 0.0 {
-            heat_load / (cp_air * dt_heating)
-        } else {
-            0.0
-        }
-        .max(m_oa);
-
-        // Cooling airflow: Q = m_dot * Cp * (T_zone - T_supply_effective)
-        //
-        // sizing_fan_delta_t (from SimulationSettings) adds the fan heat
-        // temperature rise to the cooling supply temp during sizing only.
-        let t_supply_eff = cooling_supply_temp + sizing_fan_delta_t;
-        let dt_cooling = (cool_sp - t_supply_eff).max(3.0);
-        let m_cool = if cool_load > 0.0 {
-            cool_load / (cp_air * dt_cooling)
-        } else {
-            0.0
-        }
-        .max(m_oa);
-
-        // Design airflow is the larger of heating and cooling
-        let m_design = m_heat.max(m_cool).max(0.01); // minimum 0.01 kg/s
-
-        zone_heating_airflow.insert(name.clone(), m_heat);
-        zone_cooling_airflow.insert(name.clone(), m_cool);
-        zone_design_airflow.insert(name.clone(), m_design);
-        cool_flow_basis.insert(name.clone(), (dt_cooling, m_oa));
-    }
-
-    // Each cooling design day's zone cooling flows, hour by hour, with the
-    // same outdoor-air floor (E+ CoolFlowSeq).
+    // Each cooling design day's zone cooling flows, hour by hour (the
+    // averaged flow at the timestep of the hour's peak averaged load), with
+    // the same floor (E+ CoolFlowSeq).
     let hourly_cooling_flows = |run: &DesignDayRun| -> Vec<HashMap<String, f64>> {
-        run.loads
+        let per_zone: Vec<(String, Vec<f64>, f64)> = cool_flow_basis
             .iter()
-            .map(|(_, loads)| {
-                loads
+            .map(|(name, &(basis, floor))| {
+                (name.clone(), hourly_flows(run, name, basis, window), floor)
+            })
+            .collect();
+        (0..run.loads.len())
+            .map(|h| {
+                per_zone
                     .iter()
-                    .filter_map(|(name, &(_, cl))| {
-                        let &(dt, m_oa) = cool_flow_basis.get(name)?;
-                        let flow = (cooling_sizing_factor * cl / (cp_air * dt)).max(m_oa);
-                        Some((name.clone(), flow))
+                    .map(|(name, flows, floor)| {
+                        let flow = cooling_sizing_factor * flows.get(h).copied().unwrap_or(0.0);
+                        (name.clone(), flow.max(*floor))
                     })
                     .collect()
             })
@@ -988,7 +1182,8 @@ fn run_zone_sizing(
         })
         .collect();
 
-    ZoneSizingResult {
+    let system = coincident_peaks(env, &heating_results, &cooling_results);
+    let zone = ZoneSizingResult {
         zone_peak_heating,
         zone_peak_cooling,
         zone_heating_dd,
@@ -1001,127 +1196,43 @@ fn run_zone_sizing(
         zone_cooling_flow_sequences,
         cooling_days,
         heating_days,
-    }
+    };
+    (zone, system)
 }
 
-/// Stage 2: System Sizing — find coincident peak system loads.
+/// Stage 2: System Sizing — the coincident peak system loads.
 ///
-/// With zone design airflows established from Stage 1, re-run each design
-/// day and at each timestep sum all zone loads to find the coincident peak.
-/// This is the actual load the AHU/system must handle.
-fn run_system_sizing(
-    env: &mut BuildingEnvelope,
-    design_days: &[DesignDayInput],
-    setpoints: &SizingSetpoints,
-    latitude: f64,
-    oa_handled_by_hvac: &HashMap<String, bool>,
-    return_paths: ReturnHeatPaths,
-    steps: SizingSteps,
+/// At each timestep of each design day, sum the zone loads of the zone-sizing
+/// runs (every zone instance, since plant pumps size from it); the largest sum
+/// is the load the system meets at once (E+ `Sizing:System` coincident loads).
+fn coincident_peaks(
+    env: &BuildingEnvelope,
+    heating_results: &[(String, DesignDayRun)],
+    cooling_results: &[(String, DesignDayRun)],
 ) -> SystemSizingResult {
-    let mut coincident_peak_heating = 0.0_f64;
-    let mut coincident_peak_cooling = 0.0_f64;
-    let mut heating_peak_dd = String::new();
-    let mut cooling_peak_dd = String::new();
-    let mut heating_peak_hour = 0_u32;
-    let mut cooling_peak_hour = 0_u32;
-
-    // ── Run ALL heating design days (in parallel) ─────────────────────────
-    use rayon::prelude::*;
-
-    let heating_dds: Vec<_> = design_days
-        .iter()
-        .filter(|dd| is_heating_design_day(dd))
-        .collect();
-
-    log::info!(
-        "System sizing: running {} heating DDs in parallel",
-        heating_dds.len()
-    );
-    let heating_results: Vec<_> = heating_dds
-        .par_iter()
-        .map(|dd| {
-            let weather_hours = generate_heating_design_weather(dd);
-            let mut env_copy = env.clone();
-            let loads = run_single_design_day(
-                &mut env_copy,
-                dd,
-                &weather_hours,
-                &setpoints.heating,
-                &setpoints.dd_heating,
-                oa_handled_by_hvac,
-                return_paths,
-                steps,
-            );
-            (dd.name.clone(), loads)
-        })
-        .collect();
-
-    for (dd_name, run) in &heating_results {
-        for (hour, zone_loads) in &run.loads {
-            // Plant pumps size from this, so it counts every zone instance.
-            let total_heating: f64 = env
-                .zones
-                .iter()
-                .filter_map(|z| {
-                    let &(hl, _) = zone_loads.get(&z.input.name)?;
-                    Some(hl * z.input.zone_multiplier as f64)
-                })
-                .sum();
-            if total_heating > coincident_peak_heating {
-                coincident_peak_heating = total_heating;
-                heating_peak_dd = dd_name.clone();
-                heating_peak_hour = *hour;
+    let peak = |results: &[(String, DesignDayRun)], heating: bool| {
+        let mut best = (0.0_f64, String::new(), 0_u32);
+        for (dd_name, run) in results {
+            for (hour, zone_loads) in &run.loads {
+                let total: f64 = env
+                    .zones
+                    .iter()
+                    .filter_map(|z| {
+                        let &(hl, cl) = zone_loads.get(&z.input.name)?;
+                        let q = if heating { hl } else { cl };
+                        Some(q * z.input.zone_multiplier as f64)
+                    })
+                    .sum();
+                if total > best.0 {
+                    best = (total, dd_name.clone(), *hour);
+                }
             }
         }
-    }
-
-    // ── Run ALL cooling design days (in parallel) ────────────────────────
-    let cooling_dds: Vec<_> = design_days
-        .iter()
-        .filter(|dd| is_cooling_design_day(dd))
-        .collect();
-
-    log::info!(
-        "System sizing: running {} cooling DDs in parallel",
-        cooling_dds.len()
-    );
-    let cooling_results: Vec<_> = cooling_dds
-        .par_iter()
-        .map(|dd| {
-            let weather_hours = generate_cooling_design_weather(dd, latitude);
-            let mut env_copy = env.clone();
-            let loads = run_single_design_day(
-                &mut env_copy,
-                dd,
-                &weather_hours,
-                &setpoints.cooling,
-                &setpoints.dd_cooling,
-                oa_handled_by_hvac,
-                return_paths,
-                steps,
-            );
-            (dd.name.clone(), loads)
-        })
-        .collect();
-
-    for (dd_name, run) in &cooling_results {
-        for (hour, zone_loads) in &run.loads {
-            let total_cooling: f64 = env
-                .zones
-                .iter()
-                .filter_map(|z| {
-                    let &(_, cl) = zone_loads.get(&z.input.name)?;
-                    Some(cl * z.input.zone_multiplier as f64)
-                })
-                .sum();
-            if total_cooling > coincident_peak_cooling {
-                coincident_peak_cooling = total_cooling;
-                cooling_peak_dd = dd_name.clone();
-                cooling_peak_hour = *hour;
-            }
-        }
-    }
-
+        best
+    };
+    let (coincident_peak_heating, heating_peak_dd, heating_peak_hour) = peak(heating_results, true);
+    let (coincident_peak_cooling, cooling_peak_dd, cooling_peak_hour) =
+        peak(cooling_results, false);
     SystemSizingResult {
         coincident_peak_heating,
         coincident_peak_cooling,
@@ -1283,6 +1394,7 @@ pub fn run_sizing(
     output_dir: &Path,
     input_stem: &str,
     zone_supply_temps: &HashMap<String, (f64, f64)>,
+    zone_supply_humidity: &HashMap<String, (f64, f64)>,
     return_air_zones: &HashSet<String>,
     heating_sizing_factor: f64,
     cooling_sizing_factor: f64,
@@ -1394,11 +1506,12 @@ pub fn run_sizing(
     log::info!("══════════════════════════════════════════════════════════");
 
     // ── Stage 1: Zone Sizing ─────────────────────────────────────────────
-    let zone_sizing = run_zone_sizing(
+    let (zone_sizing, system_sizing) = run_zone_sizing(
         env,
         &all_design_days,
         &setpoints,
         zone_supply_temps,
+        zone_supply_humidity,
         latitude,
         heating_sizing_factor,
         cooling_sizing_factor,
@@ -1439,24 +1552,6 @@ pub fn run_sizing(
             mf
         );
     }
-
-    log::info!("══════════════════════════════════════════════════════════");
-    log::info!("  STAGE 2: System Sizing");
-    log::info!("══════════════════════════════════════════════════════════");
-
-    // ── Stage 2: System Sizing ───────────────────────────────────────────
-    let system_sizing = run_system_sizing(
-        env,
-        &all_design_days,
-        &setpoints,
-        latitude,
-        oa_handled_by_hvac,
-        ReturnHeatPaths {
-            lighting_zones: return_air_zones,
-            supply_temps: zone_supply_temps,
-        },
-        steps,
-    );
 
     // System capacities with sizing factors
     let system_heating_capacity = system_sizing.coincident_peak_heating * heating_sizing_factor;
@@ -1697,6 +1792,32 @@ fn write_system_sizing_csv(
 
 #[cfg(test)]
 mod tests {
+    /// On a cooling design day a heating-only zone (cooling setpoint 100 °C)
+    /// floats between its heating setpoint and 100 °C instead of being held
+    /// at 100 °C from below; a zone without a thermostat holds the one
+    /// setpoint.
+    #[test]
+    fn design_day_holds_a_dual_setpoint() {
+        assert_eq!(
+            design_day_dual_setpoints(false, 100.0, Some(16.0)),
+            (16.0, 100.0)
+        );
+        assert_eq!(
+            design_day_dual_setpoints(false, 23.89, Some(21.11)),
+            (21.11, 23.89)
+        );
+        assert_eq!(
+            design_day_dual_setpoints(true, 21.11, Some(23.89)),
+            (21.11, 23.89)
+        );
+        // An off-side setpoint on the wrong side never crosses the design one.
+        assert_eq!(
+            design_day_dual_setpoints(true, 21.0, Some(18.0)),
+            (21.0, 21.0)
+        );
+        assert_eq!(design_day_dual_setpoints(false, 24.0, None), (24.0, 24.0));
+    }
+
     #[test]
     fn design_bypass_is_the_captured_exhaust_above_the_room() {
         let dc: openbse_envelope::zone::DataCenterConfig =
@@ -1763,6 +1884,92 @@ mod tests {
             taud: None,
             cooling_setpoint_schedule: None,
         }
+    }
+
+    /// A one-zone design-day run "z" with these (hour, cooling load [W],
+    /// zone temperature [°C]) timesteps.
+    fn cooling_run(steps: &[(u32, f64, f64)]) -> DesignDayRun {
+        DesignDayRun {
+            loads: Vec::new(),
+            steps: steps
+                .iter()
+                .map(|&(h, q, _)| (h, HashMap::from([("z".to_string(), (0.0, q))])))
+                .collect(),
+            step_temps: steps
+                .iter()
+                .map(|&(_, _, t)| HashMap::from([("z".to_string(), t)]))
+                .collect(),
+            hours: Vec::new(),
+        }
+    }
+
+    const COOL: FlowBasis = FlowBasis {
+        heating: false,
+        t_supply: 12.8,
+        cp: 1017.85,
+        min_dt: 3.0,
+    };
+
+    #[test]
+    fn each_step_flow_uses_its_own_zone_temperature() {
+        // A recovery step met at 26.67 °C needs less flow per watt than a
+        // step at the occupied 23.89 °C; the window averages flows, not loads.
+        let run = cooling_run(&[(1, 0.0, 29.0), (2, 13_870.0, 26.67), (3, 11_090.0, 23.89)]);
+        let peak = design_day_peak(&run, "z", COOL, 2);
+        let f2 = 13_870.0 / (1017.85 * (26.67 - 12.8));
+        let f3 = 11_090.0 / (1017.85 * (23.89 - 12.8));
+        assert!((peak.load - (13_870.0 + 11_090.0) / 2.0).abs() < 1e-9);
+        assert!((peak.flow - (f2 + f3) / 2.0).abs() < 1e-12);
+        assert_eq!(peak.hour, 3);
+    }
+
+    #[test]
+    fn design_flow_is_the_averaged_flow_at_the_peak_load() {
+        // The peak averaged load (step 2) sets the flow, even though a later
+        // step at a higher zone temperature needs less flow for its load.
+        let run = cooling_run(&[(1, 5_000.0, 23.89), (2, 9_000.0, 23.89), (3, 8_000.0, 30.0)]);
+        let peak = design_day_peak(&run, "z", COOL, 1);
+        assert_eq!(peak.hour, 2);
+        assert!((peak.flow - 9_000.0 / (1017.85 * (23.89 - 12.8))).abs() < 1e-12);
+    }
+
+    #[test]
+    fn the_design_day_needing_most_flow_sets_load_and_flow() {
+        // Day A has the larger load but at a warmer zone, so less flow.
+        let a = cooling_run(&[(1, 10_000.0, 30.0)]);
+        let b = cooling_run(&[(1, 9_000.0, 23.89)]);
+        let runs = vec![("A".to_string(), a), ("B".to_string(), b)];
+        let (day, peak) = design_peak(&runs, "z", COOL, 1).unwrap();
+        assert_eq!(day, "B");
+        assert_eq!(peak.load, 9_000.0);
+        assert!(design_peak(&runs, "other", COOL, 1).is_none());
+    }
+
+    #[test]
+    fn moving_average_matches_eplus_wrapping() {
+        assert_eq!(moving_average(&[0.0, 0.0, 9.0], 2), vec![4.5, 0.0, 4.5]);
+        assert_eq!(moving_average(&[1.0, 3.0], 1), vec![1.0, 3.0]);
+    }
+
+    #[test]
+    fn hourly_flow_is_taken_at_the_hours_peak_load() {
+        let run = cooling_run(&[(1, 1_000.0, 23.89), (1, 2_000.0, 30.0), (2, 500.0, 23.89)]);
+        let flows = hourly_flows(&run, "z", COOL, 1);
+        assert_eq!(flows.len(), 2);
+        assert!((flows[0] - 2_000.0 / (1017.85 * (30.0 - 12.8))).abs() < 1e-12);
+    }
+
+    #[test]
+    fn design_days_have_a_clear_sky() {
+        let heating = design_day(DesignDayHumidityType::Wetbulb, -17.9);
+        assert!(generate_heating_design_weather(&heating)
+            .iter()
+            .all(|wh| wh.opaque_sky_cover == 0.0 && wh.horiz_ir_rad == 0.0));
+        let mut cooling = heating.clone();
+        cooling.day_type = "summer".into();
+        assert!(generate_cooling_design_weather(&cooling, 39.7)
+            .iter()
+            .all(|wh| wh.opaque_sky_cover == 0.0 && wh.horiz_ir_rad == 0.0));
     }
 
     #[test]

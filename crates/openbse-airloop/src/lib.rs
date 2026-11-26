@@ -62,9 +62,20 @@ pub struct LoopInfo {
     pub cooling_supply_temp: f64,
     /// Capacity control method (from air loop controls)
     pub cycling: openbse_io::input::CyclingMethod,
-    /// Fan operating mode: cycling (fan cycles with coils) or continuous
-    /// (fan runs at full speed always, coils cycle ON/OFF).
+    /// Fan operating mode in force this timestep: cycling (fan cycles with
+    /// coils) or continuous (fan runs at full speed always, coils cycle
+    /// ON/OFF). The input's mode while the loop is available; cycling while a
+    /// night-cycle manager runs it.
     pub fan_operating_mode: openbse_io::input::FanOperatingMode,
+    /// Fan operating mode from the input (`controls.fan_operating_mode`).
+    pub available_fan_mode: openbse_io::input::FanOperatingMode,
+    /// Night-cycle availability manager (from the input), if any.
+    pub night_cycle: Option<openbse_io::input::NightCycleInput>,
+    /// Outdoor dry-bulb [°C] above which the loop is off, if set.
+    pub high_temperature_turn_off: Option<f64>,
+    /// Multi-speed unitary operation of a packaged single-zone loop (E+
+    /// `UnitarySystem` with `UnitarySystemPerformance:Multispeed`), if any.
+    pub unitary_speeds: Option<UnitarySpeeds>,
     /// Cooling cycling degradation coefficient Cd: PLF = 1 − Cd·(1−PLR).
     pub cooling_part_load_cd: f64,
     /// Terminal box component names per zone (zone_name -> component_name).
@@ -88,6 +99,10 @@ pub struct LoopInfo {
     pub cooling_sat_reset: Option<openbse_io::input::SatResetConfig>,
     /// Heating SAT reset configuration (cloned from AirLoopControls).
     pub heating_sat_reset: Option<openbse_io::input::SatResetConfig>,
+    /// Supply temperatures (cooling, heating) [°C] the resets started this
+    /// timestep from, keyed by the timestep's simulation time [s], so a reset
+    /// moves once per timestep however many HVAC iterations call it.
+    pub sat_reset_base: Option<(f64, f64, f64)>,
     /// Per-zone OA data for ASHRAE 62.1 VRP and DCV calculations.
     /// From each zone's `outdoor_air`, or else its connection's rates.
     pub zone_oa_data: Vec<ZoneOaData>,
@@ -125,6 +140,12 @@ pub struct LoopInfo {
     /// the terminal-reheat control size the minimum airflow per zone (constant
     /// volume = 1.0). Empty for loops without VAV terminal boxes.
     pub terminal_min_flow: HashMap<String, f64>,
+    /// Per-zone schedule of the VAV terminal minimum flow fraction (zone_name →
+    /// schedule name), read each timestep in place of `terminal_min_flow`.
+    pub terminal_min_flow_schedule: HashMap<String, String>,
+    /// Humidifier supply humidity-ratio setpoint limits [kg/kg]: minimum and
+    /// maximum (E+ SetpointManager:MultiZone:Humidity:Minimum).
+    pub humidifier_setpoint_limits: (f64, f64),
     /// Per-zone terminal heating limits from the sized boxes: the heating
     /// maximum primary flow [kg/s], the maximum reheat air temperature [°C]
     /// and the reheat capacity [W].
@@ -135,9 +156,47 @@ pub struct LoopInfo {
     /// fraction is this flow divided by the current total supply flow, so a VAV
     /// system throttling down draws a rising OA fraction (fixed OA volume).
     pub min_oa_flow_mass: Option<f64>,
+    /// Exhaust fans of the served zones: design volume flow [m³/s] and
+    /// schedule. The loop's outdoor air never falls below their scheduled
+    /// flow, as E+ Controller:OutdoorAir keeps OA ≥ the zones' exhaust.
+    pub zone_exhaust: Vec<(f64, Option<String>)>,
     /// Standard air density at the site [kg/m³] (E+ `StdRhoAir`): converts
     /// supply mass flows to the volumes the zones' outdoor-air rates are in.
     pub std_air_density: f64,
+}
+
+/// How a multi-speed packaged unit runs (E+ `UnitarySystem` with
+/// `UnitarySystemPerformance:Multispeed` and a `Fan:SystemModel`): the supply
+/// flow in each operating state as a fraction of design, and the fan's power
+/// by flow.
+#[derive(Debug, Clone, PartialEq)]
+pub struct UnitarySpeeds {
+    /// Supply flow with the coils off while the fan keeps running.
+    pub no_load_flow_fraction: f64,
+    /// Supply flow while heating.
+    pub heating_flow_fraction: f64,
+    /// The multi-speed cooling coil and each speed's supply flow, lowest
+    /// first; `None` for a single-speed coil, which cools at design flow.
+    pub cooling_coil: Option<(String, Vec<f64>)>,
+    /// Supply fan speeds, (flow fraction, power fraction) of design.
+    pub fan_speeds: Vec<(f64, f64)>,
+}
+
+impl UnitarySpeeds {
+    /// Supply flow fraction at cooling speed `n` (0-based).
+    pub fn cooling_flow_fraction(&self, n: usize) -> f64 {
+        self.cooling_coil
+            .as_ref()
+            .and_then(|(_, f)| f.get(n).copied())
+            .unwrap_or(1.0)
+    }
+
+    /// Number of cooling speeds (1 for a single-speed coil).
+    pub fn cooling_speeds(&self) -> usize {
+        self.cooling_coil
+            .as_ref()
+            .map_or(1, |(_, f)| f.len().max(1))
+    }
 }
 
 /// Control role of a component in a signal builder's coil dispatch.
@@ -150,6 +209,40 @@ pub enum CoilRole {
 }
 
 impl LoopInfo {
+    /// Whether the loop has equipment that can heat (`HvacMode::Heating`) or
+    /// cool (`HvacMode::Cooling`) its supply air: a coil of that kind, a
+    /// ground-source heat pump, or a co-simulated component. A loop with
+    /// none has no runtime in that mode.
+    pub fn can_condition(&self, mode: HvacMode) -> bool {
+        if mode == HvacMode::Deadband {
+            return false;
+        }
+        self.component_names
+            .iter()
+            .any(|n| match (self.component_kinds.get(n), mode) {
+                (Some(ComponentKind::Gshp | ComponentKind::Other), _) => true,
+                (Some(ComponentKind::CoolingCoil | ComponentKind::EvapCooler), m) => {
+                    m == HvacMode::Cooling
+                }
+                (Some(ComponentKind::HeatingCoil), m) => m == HvacMode::Heating,
+                (Some(_), _) => false,
+                (None, HvacMode::Cooling) => self.coil_role(n) == CoilRole::Cooling,
+                (None, HvacMode::Heating) => self.coil_role(n) == CoilRole::Heating,
+                (None, HvacMode::Deadband) => false,
+            })
+    }
+
+    /// Whether a supply fan sits downstream of the loop's first coil of this
+    /// role (draw-through), so its heat reaches the air after that coil. A fan
+    /// ahead of the coil (blow-through) has already heated the air it gets.
+    pub fn fan_downstream_of(&self, role: CoilRole) -> bool {
+        self.component_names
+            .iter()
+            .skip_while(|n| self.coil_role(n) != role)
+            .skip(1)
+            .any(|n| self.fan_names.contains(n))
+    }
+
     /// Control role for a component, dispatched on its `ComponentKind` from
     /// the loop's equipment list. Falls back to the legacy name-substring
     /// heuristic for components not in the map (e.g., hand-built test loops),
@@ -298,6 +391,87 @@ pub fn dual_maximum_heating_flow(
     (zone_load.max(0.0) / (cp * (max_reheat_temp - zone_temp))).clamp(min_flow, heat_max_flow)
 }
 
+/// The served zones' exhaust this hour [kg/s] at standard density, the floor
+/// on the loop's outdoor air (E+ `MixedAir.cc`: "Do not allow OA to be below
+/// Exh for controller:outside air").
+pub fn zone_exhaust_mass_flow(
+    li: &LoopInfo,
+    schedule_mgr: Option<&ScheduleManager>,
+    hour: u32,
+    day_of_week: u32,
+) -> f64 {
+    // Only a loop with an outdoor-air intake (E+ Controller:OutdoorAir) makes
+    // up its zones' exhaust; a recirculating unit leaves it to infiltration.
+    let has_outdoor_air = li.min_oa_fraction > 0.0
+        || li.min_oa_flow_mass.is_some()
+        || li.economizer_type != openbse_io::input::EconomizerType::NoEconomizer
+        || (!li.explicit_min_oa && !li.zone_oa_data.is_empty());
+    if !has_outdoor_air {
+        return 0.0;
+    }
+    li.zone_exhaust
+        .iter()
+        .map(|(flow, sched)| {
+            let f = match (sched, schedule_mgr) {
+                (Some(s), Some(mgr)) => mgr.fraction(s, hour, day_of_week),
+                _ => 1.0,
+            };
+            flow * f * li.std_air_density
+        })
+        .sum()
+}
+
+/// Supply humidity ratio a loop's humidifier holds [kg/kg] (E+
+/// `SetpointManager:MultiZone:Humidity:Minimum`, `SPMMultiZoneHum::calculate`):
+/// the loop's minimum setpoint, raised to what each served zone with a minimum
+/// RH needs to reach that RH this timestep, `W_sp + load(W_sp)/ṁ_zone`, with
+/// `load` the zone's moisture load line and `ṁ_zone` the air it receives;
+/// capped at the maximum setpoint.
+pub fn humidifier_supply_setpoint(
+    li: &LoopInfo,
+    ctx: &SignalCtx,
+    zone_flow: impl Fn(&str) -> f64,
+) -> f64 {
+    let (lo, hi) = li.humidifier_setpoint_limits;
+    let mut setpoint = lo;
+    for zone in &li.served_zones {
+        let (Some(&min_rh), Some(line)) =
+            (ctx.zone_min_rh.get(zone), ctx.zone_moisture_lines.get(zone))
+        else {
+            continue;
+        };
+        let t = ctx.zone_temps.get(zone).copied().unwrap_or(21.0);
+        let w_sp = openbse_psychrometrics::w_fn_tdb_rh_pb(t, min_rh / 100.0, ctx.p_b);
+        let load = line.at(w_sp);
+        let m = zone_flow(zone);
+        if load > 0.0 && m > 1.0e-6 {
+            setpoint = setpoint.max(w_sp + load / m);
+        }
+    }
+    // Always positive: a zero setpoint would hand the humidifier its own
+    // RH fallback instead of "no humidification".
+    setpoint.min(hi.max(lo)).max(f64::MIN_POSITIVE)
+}
+
+/// A zone's VAV terminal minimum flow fraction this hour: its schedule's value
+/// when it has one (E+ Scheduled minimum), else its constant fraction, else the
+/// loop's `min_vav_fraction`.
+pub fn terminal_min_fraction(
+    li: &LoopInfo,
+    zone: &str,
+    schedule_mgr: Option<&ScheduleManager>,
+    hour: u32,
+    day_of_week: u32,
+) -> f64 {
+    if let (Some(sched), Some(mgr)) = (li.terminal_min_flow_schedule.get(zone), schedule_mgr) {
+        return mgr.fraction(sched, hour, day_of_week);
+    }
+    li.terminal_min_flow
+        .get(zone)
+        .copied()
+        .unwrap_or(li.min_vav_fraction)
+}
+
 /// Highest supply temperature the VAV Warmest reset sets [°C] (E+
 /// `SetpointManager:Warmest` Maximum Setpoint Temperature): with no zone
 /// cooling, as on a heating design day, the supply sits here.
@@ -381,6 +555,9 @@ pub struct SignalCtx<'a> {
     pub zone_max_rh: &'a HashMap<String, f64>,
     /// Zone minimum relative humidity setpoints [%].
     pub zone_min_rh: &'a HashMap<String, f64>,
+    /// Each zone's moisture load line from the latest moisture solve, for the
+    /// humidifier setpoint.
+    pub zone_moisture_lines: &'a HashMap<String, openbse_envelope::zone::MoistureLoadLine>,
     /// Return-air temperature leaving each zone [°C], where it differs from
     /// the zone air: contained hot aisles (CRAC/CRAH), the return height of a
     /// stratified zone (#91), and lighting return-air heat (#51). Zones not
@@ -478,6 +655,26 @@ fn zone_mode(ctx: &SignalCtx, zone: &str, zone_temp: f64, heat_sp: f64, cool_sp:
         .unwrap_or_else(|| hvac_mode(zone_temp, heat_sp, cool_sp))
 }
 
+/// Whether a PSZ-AC unit modulates its heating supply temperature to the load
+/// (`cycling: modulating` with a continuous fan and no compressor heating
+/// coil), as an E+ UnitarySystem does with a continuous fan and a gas,
+/// electric or water heating coil. Otherwise it runs at full output for a
+/// runtime fraction: a cycling fan cycles the whole unit, and a single-speed
+/// heat pump cycles its compressor (E+ `UnitarySystem`, `FanOpMode`).
+pub fn psz_modulates_heating(li: &LoopInfo) -> bool {
+    li.system_type == AirLoopSystemType::PszAc
+        && li.cycling == openbse_io::input::CyclingMethod::Modulating
+        && li.fan_operating_mode != openbse_io::input::FanOperatingMode::Cycling
+        && li
+            .component_names
+            .iter()
+            .any(|n| li.coil_role(n) == CoilRole::Heating && !li.dx_compressor_names.contains(n))
+        && !li
+            .component_names
+            .iter()
+            .any(|n| li.coil_role(n) == CoilRole::Heating && li.dx_compressor_names.contains(n))
+}
+
 pub fn build_psz_signals(li: &LoopInfo, ctx: &SignalCtx) -> ControlSignals {
     let zone_temps = ctx.zone_temps;
     let zone_heat_sp = ctx.zone_heat_sp;
@@ -491,7 +688,6 @@ pub fn build_psz_signals(li: &LoopInfo, ctx: &SignalCtx) -> ControlSignals {
     let w_outdoor = ctx.w_outdoor;
     let zone_humidity_ratios = ctx.zone_humidity_ratios;
     let zone_max_rh = ctx.zone_max_rh;
-    let zone_min_rh = ctx.zone_min_rh;
 
     let mut signals = ControlSignals::default();
 
@@ -581,6 +777,9 @@ pub fn build_psz_signals(li: &LoopInfo, ctx: &SignalCtx) -> ControlSignals {
         total_flow += zone_design_flows.get(zone_name).copied().unwrap_or(0.5);
     }
     total_flow = total_flow.max(0.01);
+    // Outdoor air at least the served zones' exhaust.
+    let exhaust = zone_exhaust_mass_flow(li, ctx.schedule_mgr, ctx.hour, ctx.day_of_week);
+    let effective_min_oa = effective_min_oa.max((exhaust / total_flow).min(1.0));
 
     // ── Part-Load Ratio (PLR) for ON/OFF Fan Cycling ──
     //
@@ -606,7 +805,29 @@ pub fn build_psz_signals(li: &LoopInfo, ctx: &SignalCtx) -> ControlSignals {
     //   DAT ramps from setpoint to max over a 5°C error band, giving
     //   smooth modulation for systems with variable-capacity burners.
     let heating_dat = match li.cycling {
-        openbse_io::input::CyclingMethod::OnOff => li.heating_supply_temp,
+        // Modulating with a continuous fan: the coil leaving temperature that
+        // delivers the control zone's load to setpoint with the zone's share
+        // of the flow, ṁ·cp·(T_sup − T_sp) = Q, less the draw-through fan's
+        // rise, up to the design supply temperature (E+ UnitarySystem load
+        // control, QZnReq / ControlZoneMassFlowFrac).
+        openbse_io::input::CyclingMethod::Modulating if psz_modulates_heating(li) => {
+            let zone_flow = zone_design_flows
+                .get(control_zone)
+                .copied()
+                .unwrap_or(0.5)
+                .max(0.01);
+            let cp = openbse_psychrometrics::cp_air_fn_w(
+                zone_humidity_ratios
+                    .get(control_zone)
+                    .copied()
+                    .unwrap_or(0.008),
+            );
+            let t_supply = heat_sp + zone_heat_load.max(0.0) / (zone_flow * cp).max(1e-6);
+            (t_supply - li.supply_fan_dt).min(li.heating_supply_temp)
+        }
+        openbse_io::input::CyclingMethod::Modulating | openbse_io::input::CyclingMethod::OnOff => {
+            li.heating_supply_temp
+        }
         // A heating supply temperature at or below the setpoint leaves nothing
         // to ramp (validation warns that the loop cannot heat the zone), and
         // clamping between the two would panic; hold the supply temperature.
@@ -646,6 +867,14 @@ pub fn build_psz_signals(li: &LoopInfo, ctx: &SignalCtx) -> ControlSignals {
             let sat = (cool_sp - zone_cool_load / (total_flow * 1006.0)).clamp(sat_min, sat_max);
             sat - li.supply_fan_dt
         }
+        // Under a SingleZone reset the cooling coil's setpoint already carries
+        // the fan rise when the fan is downstream of it. E+'s mixed-air
+        // setpoint is the supply setpoint less the fan's rise wherever the fan
+        // sits after the mixer, so with a blow-through fan the mixed air aims
+        // one fan rise below the coil's setpoint.
+        None if single_zone_sat && !li.fan_downstream_of(CoilRole::Cooling) => {
+            li.cooling_supply_temp - li.supply_fan_dt
+        }
         None => li.cooling_supply_temp,
     };
     // Coil setpoint: -10°C forces the DX coil to run at full physical capacity.
@@ -677,9 +906,12 @@ pub fn build_psz_signals(li: &LoopInfo, ctx: &SignalCtx) -> ControlSignals {
     // Return air temperature: stratified zones (#91), data-center zones and
     // zones whose lights heat the return air (#51) publish their return
     // temperature; well-mixed zones return at their air temperature. The
-    // supply is split evenly between the served zones, so is the return.
-    let return_air_temp = mixed_return_temp(ctx, &li.served_zones, |_| 1.0);
-    let return_w = mixed_return_w(zone_humidity_ratios, &li.served_zones, |_| 1.0).unwrap_or(0.008);
+    // supply is split by the zones' design flows (E+ terminal maximum
+    // flows), and so is the return.
+    let zone_flow = |z: &str| zone_design_flows.get(z).copied().unwrap_or(0.5);
+    let return_air_temp = mixed_return_temp(ctx, &li.served_zones, zone_flow);
+    let return_w =
+        mixed_return_w(zone_humidity_ratios, &li.served_zones, zone_flow).unwrap_or(0.008);
     // A return fan (when present) heats the return air before it mixes with
     // outdoor air. The economizer availability test still uses the pre-fan
     // return condition (the standard control-sensor location); only the
@@ -789,6 +1021,16 @@ pub fn build_psz_signals(li: &LoopInfo, ctx: &SignalCtx) -> ControlSignals {
             signals.air_mass_flows.insert(name.clone(), flow);
             continue;
         }
+        // A ground-source heat pump heats and cools: it takes the active
+        // mode's coil target and is off (±99 °C) in dead band.
+        if li.component_kinds.get(name) == Some(&ComponentKind::Gshp) {
+            let sp = match mode {
+                HvacMode::Heating => heating_dat,
+                HvacMode::Cooling => cooling_coil_sp,
+                HvacMode::Deadband => 99.0,
+            };
+            signals.coil_setpoints.insert(name.clone(), sp);
+        }
         match mode {
             HvacMode::Heating => {
                 // Proportional heating DAT: ramps from setpoint toward max (40°C)
@@ -817,19 +1059,10 @@ pub fn build_psz_signals(li: &LoopInfo, ctx: &SignalCtx) -> ControlSignals {
                 }
             }
         }
-        // Humidification control: if zone RH < min_rh, activate humidifier
-        // by setting its w_setpoint to the target humidity ratio.
+        // Humidifier: the supply humidity its zone needs (E+ setpoint manager).
         if role == CoilRole::Humidifier {
-            if let Some(&min_rh) = zone_min_rh.get(control_zone) {
-                if zone_rh_pct < min_rh {
-                    let w_target = openbse_psychrometrics::w_fn_tdb_rh_pb(
-                        control_temp,
-                        min_rh / 100.0,
-                        ctx.p_b,
-                    );
-                    signals.coil_setpoints.insert(name.clone(), w_target);
-                }
-            }
+            let sp = humidifier_supply_setpoint(li, ctx, |_| flow);
+            signals.coil_setpoints.insert(name.clone(), sp);
         }
         signals.air_mass_flows.insert(name.clone(), flow);
     }
@@ -879,7 +1112,7 @@ fn data_center_supply_flow(
 /// - Always in cooling-only mode (data centers have no heating)
 /// - High-sensible operation comes from the coil's configured `shr`
 ///   (e.g. 0.98); the builder does not set it.
-/// - Supply air setpoint from `cooling_supply_temp` or rack_inlet_temp_max_c
+/// - Supply air setpoint from the loop's `cooling_supply_temp`
 /// - Airflow modulates with load when the fan is variable-speed
 ///   ([`data_center_supply_flow`])
 pub fn build_crac_signals(li: &LoopInfo, ctx: &SignalCtx) -> ControlSignals {
@@ -959,7 +1192,7 @@ pub fn build_crac_signals(li: &LoopInfo, ctx: &SignalCtx) -> ControlSignals {
                     let sp = if dehumidify_only {
                         zone_temp - 0.5
                     } else {
-                        li.cooling_supply_temp // target rack_inlet_temp_max_c like CRAH
+                        li.cooling_supply_temp
                     };
                     signals.coil_setpoints.insert(name.clone(), sp);
                 }
@@ -1078,57 +1311,45 @@ pub fn build_crah_signals(li: &LoopInfo, ctx: &SignalCtx) -> ControlSignals {
     signals
 }
 
-/// DOAS ventilation airflow [kg/s]: 30% of the zone design flows. Coil sizing
-/// calls this too, so that the coils are sized for the flow the loop runs at.
-pub fn doas_vent_flow(li: &LoopInfo, zone_design_flows: &HashMap<String, f64>) -> f64 {
-    let total: f64 = li
-        .served_zones
-        .iter()
-        .map(|z| zone_design_flows.get(z).copied().unwrap_or(0.1))
-        .sum::<f64>()
-        * 0.30;
-    total.max(0.05)
+/// DOAS autosized airflow [kg/s]: the served zones' summed outdoor-air
+/// requirement (E+ `Sizing:System` with a `VentilationRequirement` load).
+/// Coil sizing autosizes the fan to it, and the controls run the fan's flow.
+pub fn doas_design_flow(li: &LoopInfo) -> f64 {
+    li.zone_outdoor_air.values().sum()
 }
 
-/// DOAS heating and cooling supply setpoints [°C]: 2 °C above the highest zone
-/// heating setpoint, and 2 °C below the lowest cooling setpoint but at least
-/// 14 °C for dehumidification. Coil sizing uses them too.
-pub fn doas_supply_temps(
-    li: &LoopInfo,
-    zone_heat_sp: &HashMap<String, f64>,
-    zone_cool_sp: &HashMap<String, f64>,
-) -> (f64, f64) {
-    let max_heat_sp = li
-        .served_zones
-        .iter()
-        .map(|z| zone_heat_sp.get(z).copied().unwrap_or(21.0))
-        .fold(f64::NEG_INFINITY, f64::max);
-    let min_cool_sp = li
-        .served_zones
-        .iter()
-        .map(|z| zone_cool_sp.get(z).copied().unwrap_or(24.0))
-        .fold(f64::INFINITY, f64::min);
-    (max_heat_sp + 2.0, (min_cool_sp - 2.0).max(14.0))
+/// DOAS heating and cooling coil leaving-air targets [°C]: the loop's supply
+/// temperatures (after any reset), less the rise of a supply fan downstream of
+/// the coils. Coil sizing uses the same targets.
+pub fn doas_supply_temps(li: &LoopInfo) -> (f64, f64) {
+    let fan_rise = if fan_after_coils(li) {
+        li.supply_fan_dt
+    } else {
+        0.0
+    };
+    (
+        li.heating_supply_temp - fan_rise,
+        li.cooling_supply_temp - fan_rise,
+    )
 }
 
-/// DOAS: 100% outdoor air, fixed supply setpoints, always on.
+/// DOAS: 100% outdoor air at the loop's design flow, always on, with the
+/// loop's own supply temperatures.
 ///
-/// Supply temperature setpoints:
-///   Heating:  max zone heating setpoint + 2°C (ensures OA is delivered above zone setpoint)
-///   Cooling:  min zone cooling setpoint - 2°C (dehumidified neutral air)
-///
-/// This prevents the DOAS from delivering supply air that is colder than the zone
-/// heating setpoint in winter (which would add heating load to the zones).
+/// The flow is the fan's, which autosizes to the zones' outdoor-air requirement
+/// (E+ `Sizing:System` with a `VentilationRequirement` load), split between the
+/// zones in the shares of that requirement.
 pub fn build_doas_signals(li: &LoopInfo, ctx: &SignalCtx) -> ControlSignals {
-    let zone_design_flows = ctx.zone_design_flows;
-    let zone_heat_sp = ctx.zone_heat_sp;
-    let zone_cool_sp = ctx.zone_cool_sp;
     let t_outdoor = ctx.t_outdoor;
 
     let mut signals = ControlSignals::default();
 
-    let vent_flow = doas_vent_flow(li, zone_design_flows);
-    let (t_supply_heat, t_supply_cool) = doas_supply_temps(li, zone_heat_sp, zone_cool_sp);
+    let vent_flow = li.design_supply_flow * li.std_air_density;
+    let share = doas_zone_shares(li);
+    for (zone, f) in &share {
+        signals.zone_air_flows.insert(zone.clone(), f * vent_flow);
+    }
+    let (t_supply_heat, t_supply_cool) = doas_supply_temps(li);
 
     for name in &li.component_names {
         let role = li.coil_role(name);
@@ -1152,11 +1373,32 @@ pub fn build_doas_signals(li: &LoopInfo, ctx: &SignalCtx) -> ControlSignals {
 
     // DOAS inlet is always 100% outdoor air. The return air it relieves
     // (heat recovery's exhaust side) comes back from the zones in the shares
-    // the ventilation air is split into: evenly.
+    // the ventilation air is split into.
     signals.oa_fraction = Some(1.0);
-    signals.return_air_temp = Some(mixed_return_temp(ctx, &li.served_zones, |_| 1.0));
+    signals.return_air_temp = Some(mixed_return_temp(ctx, &li.served_zones, |z| {
+        share.get(z).copied().unwrap_or(0.0)
+    }));
 
     signals
+}
+
+/// Each zone's share of a DOAS loop's air: its share of the loop's outdoor-air
+/// requirement, or an even split when a hard-sized fan serves zones that state none.
+fn doas_zone_shares(li: &LoopInfo) -> HashMap<String, f64> {
+    let required = |z: &String| li.zone_outdoor_air.get(z).copied().unwrap_or(0.0);
+    let total: f64 = li.served_zones.iter().map(required).sum();
+    let even = 1.0 / li.served_zones.len().max(1) as f64;
+    li.served_zones
+        .iter()
+        .map(|z| {
+            let share = if total > 0.0 {
+                required(z) / total
+            } else {
+                even
+            };
+            (z.clone(), share)
+        })
+        .collect()
 }
 
 /// E+ `ZoneHVAC:FourPipeFanCoil` low-speed supply flow ratio (default).
@@ -1237,7 +1479,6 @@ pub fn build_fcu_signals(li: &LoopInfo, ctx: &SignalCtx) -> ControlSignals {
     let predictor_modes = ctx.predictor_modes;
     let zone_humidity_ratios = ctx.zone_humidity_ratios;
     let zone_max_rh = ctx.zone_max_rh;
-    let zone_min_rh = ctx.zone_min_rh;
 
     let mut signals = ControlSignals::default();
 
@@ -1366,15 +1607,10 @@ pub fn build_fcu_signals(li: &LoopInfo, ctx: &SignalCtx) -> ControlSignals {
         if dehumidify_only_fcu && (role == CoilRole::Cooling) {
             signals.coil_setpoints.insert(name.clone(), zone_temp - 0.5);
         }
-        // Humidification control
+        // Humidifier: the supply humidity its zone needs (E+ setpoint manager).
         if role == CoilRole::Humidifier {
-            if let Some(&min_rh) = zone_min_rh.get(zone_name) {
-                if zone_rh_pct_fcu < min_rh {
-                    let w_target =
-                        openbse_psychrometrics::w_fn_tdb_rh_pb(zone_temp, min_rh / 100.0, ctx.p_b);
-                    signals.coil_setpoints.insert(name.clone(), w_target);
-                }
-            }
+            let sp = humidifier_supply_setpoint(li, ctx, |_| flow);
+            signals.coil_setpoints.insert(name.clone(), sp);
         }
         signals.air_mass_flows.insert(name.clone(), flow);
     }
@@ -1387,19 +1623,23 @@ pub fn build_fcu_signals(li: &LoopInfo, ctx: &SignalCtx) -> ControlSignals {
 
 /// VAV: central AHU + per-zone VAV boxes with reheat.
 ///
-/// ASHRAE Guideline 36 §5.2 / §5.16 — Dual-Maximum VAV control:
+///   **Zone level (VAV box):**
+///   - Cooling: the flow that meets the zone's load at the supply temperature,
+///     between the box minimum and the zone design flow.
+///   - Deadband: the box minimum.
+///   - Heating: a box with sized reheat follows the dual-maximum sequence
+///     ([`dual_maximum_heating_flow`]); a zone without one rises from the loop's
+///     minimum fraction to half its design flow over a 5 K error.
 ///
-///   **Zone-level (VAV box):**
-///   - Cooling: airflow ramps from V_min up to V_cool_max (100% design) proportional to error
-///   - Deadband: airflow at V_min (ventilation minimum)
-///   - Heating: airflow ramps from V_min up to V_heat_max (50% design), AND reheat coil fires
-///     This is "dual-maximum" — heating has its own max, not the single-maximum of old systems
-///
-///   **AHU-level:**
-///   - SAT reset (G36 §5.16): reset supply temp from 13°C (max cooling) to 18°C (min cooling)
-///     based on cooling demand across all zones. Saves energy in mild weather.
-///   - Economizer: differential dry-bulb (100% OA when OA < return in cooling)
-///   - Preheat: frost protection when mixed air < 4°C
+///   **AHU level:**
+///   - Supply temperature (E+ `SetpointManager:Warmest`): the warmest supply that
+///     meets every cooling zone's load at its design flow, between the loop's
+///     `cooling_supply_temp` and 15.6 °C ([`WARMEST_SAT_MAX`], raised to the
+///     cooling supply temperature if that is higher); a fixed `cooling_supply_temp`
+///     with `fixed_cooling_sat`.
+///   - Outdoor air: the minimum corrected by VRP, and the loop's economizer type
+///     with E+ LockoutWithHeating.
+///   - Preheat: a central heating coil holds `preheat_setpoint` when one is given.
 pub fn build_vav_signals(
     li: &LoopInfo,
     ctx: &SignalCtx,
@@ -1420,7 +1660,6 @@ pub fn build_vav_signals(
     let w_outdoor = ctx.w_outdoor;
     let zone_humidity_ratios = ctx.zone_humidity_ratios;
     let zone_max_rh = ctx.zone_max_rh;
-    let zone_min_rh = ctx.zone_min_rh;
     let mut signals = ControlSignals::default();
 
     // ── SetpointManager:Warmest SAT calculation ──
@@ -1436,8 +1675,11 @@ pub fn build_vav_signals(
     // Heating flow of a zone without a sized terminal box: a proportional
     // band rising to half of design over a 5 K error.
     let v_heat_max_frac = 0.50;
-    let sat_min = li.cooling_supply_temp; // E+ SetpointManager:Warmest MinimumTemperature
-    let sat_max = WARMEST_SAT_MAX;
+    // E+ SetpointManager:Warmest Minimum and Maximum Setpoint Temperatures. A
+    // cooling supply temperature above the usual maximum raises the maximum
+    // with it, so the reset holds that temperature rather than inverting.
+    let sat_min = li.cooling_supply_temp;
+    let sat_max = WARMEST_SAT_MAX.max(sat_min);
 
     let mut sat_setpoint = sat_max; // start warm, only drop if a zone needs it
 
@@ -1508,11 +1750,7 @@ pub fn build_vav_signals(
             let cool_load = zone_cooling_loads.get(zone_name).copied().unwrap_or(0.0);
             let heat_load = zone_heating_loads.get(zone_name).copied().unwrap_or(0.0);
             let net_gain = cool_load - heat_load;
-            let min_frac = li
-                .terminal_min_flow
-                .get(zone_name)
-                .copied()
-                .unwrap_or(li.min_vav_fraction);
+            let min_frac = terminal_min_fraction(li, zone_name, schedule_mgr, hour, day_of_week);
             let min_flow = design_flow * min_frac;
             let deck_dt = (cool_sp - sat_setpoint).max(0.1);
             if net_gain > 0.0 {
@@ -1522,11 +1760,8 @@ pub fn build_vav_signals(
             }
         } else {
             // Each box's own minimum, else the loop's.
-            let min_flow = design_flow
-                * li.terminal_min_flow
-                    .get(zone_name)
-                    .copied()
-                    .unwrap_or(li.min_vav_fraction);
+            let min_flow =
+                design_flow * terminal_min_fraction(li, zone_name, schedule_mgr, hour, day_of_week);
             match mode {
                 HvacMode::Cooling => {
                     let cool_load = zone_cooling_loads.get(zone_name).copied().unwrap_or(0.0);
@@ -1637,6 +1872,9 @@ pub fn build_vav_signals(
     } else {
         vrp_min_oa
     };
+    // Outdoor air at least the served zones' exhaust (E+ Controller:OutdoorAir).
+    let exhaust = zone_exhaust_mass_flow(li, schedule_mgr, hour, day_of_week);
+    let vrp_min_oa = vrp_min_oa.max((exhaust / total_flow).min(1.0));
 
     // ── Return air temperature ──
     // The return stream is the mix of the zones' outlets at the box flows
@@ -1792,29 +2030,12 @@ pub fn build_vav_signals(
                 .coil_setpoints
                 .insert(name.clone(), coil_target(name));
         }
-        // Humidification control: if any served zone is below min_rh, activate humidifier
+        // Humidifier: the supply humidity the served zones need (E+
+        // SetpointManager:MultiZone:Humidity:Minimum).
         if role == CoilRole::Humidifier {
-            for zone_name in &li.served_zones {
-                if let Some(&min_rh) = zone_min_rh.get(zone_name) {
-                    let zone_temp_h = zone_temps.get(zone_name).copied().unwrap_or(21.0);
-                    let zone_w_h = zone_humidity_ratios
-                        .get(zone_name)
-                        .copied()
-                        .unwrap_or(0.008);
-                    let zone_rh_h =
-                        openbse_psychrometrics::rh_fn_tdb_w_pb(zone_temp_h, zone_w_h, ctx.p_b)
-                            * 100.0;
-                    if zone_rh_h < min_rh {
-                        let w_target = openbse_psychrometrics::w_fn_tdb_rh_pb(
-                            zone_temp_h,
-                            min_rh / 100.0,
-                            ctx.p_b,
-                        );
-                        signals.coil_setpoints.insert(name.clone(), w_target);
-                        break; // Set based on first zone needing humidification
-                    }
-                }
-            }
+            let flows = &signals.zone_air_flows;
+            let sp = humidifier_supply_setpoint(li, ctx, |z| flows.get(z).copied().unwrap_or(0.0));
+            signals.coil_setpoints.insert(name.clone(), sp);
         }
         signals.air_mass_flows.insert(name.clone(), total_flow);
     }
@@ -1824,8 +2045,8 @@ pub fn build_vav_signals(
     signals.oa_fraction = Some(oa_frac);
     signals.economizer_active = oa_frac > vrp_min_oa + 1e-6;
 
-    // The mixed-air target heat recovery is throttled to.
-    signals.sat_setpoint = sat_setpoint;
+    // The mixed-air target heat recovery is throttled to: the economizer's.
+    signals.mixed_air_setpoint = Some(mixed_air_setpoint);
 
     signals
 }
@@ -1863,12 +2084,10 @@ fn dual_duct_zone_load(ctx: &SignalCtx, zone: &str) -> (f64, f64) {
 }
 
 pub fn build_dual_duct_signals(li: &mut LoopInfo, ctx: &SignalCtx) -> ControlSignals {
-    let zone_temps = ctx.zone_temps;
     let zone_design_flows = ctx.zone_design_flows;
     let t_outdoor = ctx.t_outdoor;
     let effective_min_oa = ctx.effective_min_oa;
     let zone_humidity_ratios = ctx.zone_humidity_ratios;
-    let zone_min_rh = ctx.zone_min_rh;
 
     let mut signals = ControlSignals::default();
     let hot_deck_temp = li.heating_supply_temp;
@@ -1941,31 +2160,14 @@ pub fn build_dual_duct_signals(li: &mut LoopInfo, ctx: &SignalCtx) -> ControlSig
     signals.mixed_air_temp = Some(mixed_air_temp);
     signals.oa_fraction = Some(effective_min_oa);
 
-    // Check RH min override for humidifier
+    // Humidifier: the supply humidity the served zones need (E+
+    // SetpointManager:MultiZone:Humidity:Minimum).
     for name in &li.component_names {
-        let role = li.coil_role(name);
-        if role == CoilRole::Humidifier {
-            for zone_name in &li.served_zones {
-                if let Some(&min_rh) = zone_min_rh.get(zone_name) {
-                    let zone_temp_h = zone_temps.get(zone_name).copied().unwrap_or(21.0);
-                    let zone_w_h = zone_humidity_ratios
-                        .get(zone_name)
-                        .copied()
-                        .unwrap_or(0.008);
-                    let zone_rh_h =
-                        openbse_psychrometrics::rh_fn_tdb_w_pb(zone_temp_h, zone_w_h, ctx.p_b)
-                            * 100.0;
-                    if zone_rh_h < min_rh {
-                        let w_target = openbse_psychrometrics::w_fn_tdb_rh_pb(
-                            zone_temp_h,
-                            min_rh / 100.0,
-                            ctx.p_b,
-                        );
-                        signals.coil_setpoints.insert(name.clone(), w_target);
-                        break;
-                    }
-                }
-            }
+        if li.coil_role(name) == CoilRole::Humidifier {
+            let sp = humidifier_supply_setpoint(li, ctx, |z| {
+                zone_design_flows.get(z).copied().unwrap_or(0.0)
+            });
+            signals.coil_setpoints.insert(name.clone(), sp);
         }
     }
 
@@ -1990,6 +2192,99 @@ mod tests {
     use super::*;
     use openbse_io::input::{AirLoopSystemType, CyclingMethod, EconomizerType, FanOperatingMode};
 
+    #[test]
+    fn outdoor_air_covers_the_zones_exhaust() {
+        let mut li = make_loop(AirLoopSystemType::Vav, vec![]);
+        li.std_air_density = 1.0;
+        li.min_oa_fraction = 0.2;
+        li.zone_exhaust = vec![(0.5, Some("Kitchen".to_string())), (0.2, None)];
+        let mut sched = openbse_envelope::schedule::ScheduleInput::always_on("Kitchen");
+        sched.weekday = vec![0.5; 24];
+        let mgr = ScheduleManager::from_inputs(vec![sched]);
+        let m = zone_exhaust_mass_flow(&li, Some(&mgr), 3, 2);
+        assert!((m - (0.5 * 0.5 + 0.2)).abs() < 1e-12, "{m}");
+        // A recirculating loop (no outdoor air, no economizer) makes up none.
+        li.min_oa_fraction = 0.0;
+        li.explicit_min_oa = true;
+        li.economizer_type = openbse_io::input::EconomizerType::NoEconomizer;
+        assert_eq!(zone_exhaust_mass_flow(&li, Some(&mgr), 3, 2), 0.0);
+        li.min_oa_fraction = 0.2;
+        li.zone_exhaust.clear();
+        assert_eq!(zone_exhaust_mass_flow(&li, Some(&mgr), 3, 2), 0.0);
+    }
+
+    #[test]
+    fn humidifier_setpoint_follows_the_zones_moisture_demand() {
+        use openbse_envelope::zone::MoistureLoadLine;
+        let mut li = make_loop(AirLoopSystemType::Vav, vec![]);
+        li.served_zones = vec!["OR".to_string(), "Corridor".to_string()];
+        li.humidifier_setpoint_limits = (0.005, 0.012);
+        let temps: HashMap<String, f64> =
+            [("OR".to_string(), 21.0), ("Corridor".to_string(), 21.0)].into();
+        let min_rh: HashMap<String, f64> = [("OR".to_string(), 30.0)].into();
+        let p_b = 82_000.0;
+        let w_sp = openbse_psychrometrics::w_fn_tdb_rh_pb(21.0, 0.30, p_b);
+        // The OR needs 0.004 kg/s of moisture to reach 30 % RH this step.
+        let line = MoistureLoadLine {
+            slope: 2.0,
+            driving: 2.0 * w_sp - 0.004,
+        };
+        let mut lines: HashMap<String, MoistureLoadLine> = [("OR".to_string(), line)].into();
+        let empty = HashMap::new();
+        let modes = HashMap::new();
+        let ctx = |lines: &HashMap<String, MoistureLoadLine>| -> f64 {
+            let c = SignalCtx {
+                zone_temps: &temps,
+                zone_start_temps: &temps,
+                zone_heat_sp: &empty,
+                zone_cool_sp: &empty,
+                zone_design_flows: &empty,
+                zone_cooling_loads: &empty,
+                zone_heating_loads: &empty,
+                zone_humidity_ratios: &empty,
+                zone_max_rh: &empty,
+                zone_min_rh: &min_rh,
+                zone_moisture_lines: lines,
+                zone_return_temps: &empty,
+                predictor_modes: &modes,
+                t_outdoor: 0.0,
+                raw_t_outdoor: 0.0,
+                w_outdoor: 0.002,
+                p_b,
+                effective_min_oa: 0.0,
+                schedule_mgr: None,
+                hour: 1,
+                day_of_week: 1,
+            };
+            humidifier_supply_setpoint(&li, &c, |_| 2.0)
+        };
+        // 2 kg/s of supply: W_sp + 0.004 / 2.
+        assert!((ctx(&lines) - (w_sp + 0.002)).abs() < 1e-12);
+        // A zone already wet enough: the loop's minimum setpoint.
+        lines.get_mut("OR").unwrap().driving = 2.0 * w_sp + 0.001;
+        assert_eq!(ctx(&lines), 0.005);
+    }
+
+    #[test]
+    fn terminal_minimum_follows_its_schedule() {
+        let mut li = make_loop(AirLoopSystemType::Vav, vec![]);
+        li.min_vav_fraction = 0.3;
+        li.terminal_min_flow.insert("OR".to_string(), 0.6);
+        li.terminal_min_flow.insert("Office".to_string(), 0.4);
+        li.terminal_min_flow_schedule
+            .insert("OR".to_string(), "OR_MinSA".to_string());
+        let mut sched = openbse_envelope::schedule::ScheduleInput::always_on("OR_MinSA");
+        sched.weekday = vec![0.2; 24];
+        let mgr = ScheduleManager::from_inputs(vec![sched]);
+        // The schedule replaces the box's design fraction during the run.
+        assert_eq!(terminal_min_fraction(&li, "OR", Some(&mgr), 3, 2), 0.2);
+        // Without one, the box's constant fraction, then the loop's.
+        assert_eq!(terminal_min_fraction(&li, "Office", Some(&mgr), 3, 2), 0.4);
+        assert_eq!(terminal_min_fraction(&li, "Other", Some(&mgr), 3, 2), 0.3);
+        // No schedule manager (sizing helpers): the design fraction.
+        assert_eq!(terminal_min_fraction(&li, "OR", None, 3, 2), 0.6);
+    }
+
     fn make_loop(system_type: AirLoopSystemType, component_names: Vec<String>) -> LoopInfo {
         LoopInfo {
             name: "test".to_string(),
@@ -2008,11 +2303,18 @@ mod tests {
             cooling_supply_temp: 13.0,
             cycling: CyclingMethod::OnOff,
             fan_operating_mode: FanOperatingMode::Cycling,
+            available_fan_mode: FanOperatingMode::Cycling,
+            night_cycle: None,
+            high_temperature_turn_off: None,
+            unitary_speeds: None,
             cooling_part_load_cd: 0.15,
             terminal_boxes: HashMap::new(),
             terminal_min_flow: HashMap::new(),
+            terminal_min_flow_schedule: HashMap::new(),
+            humidifier_setpoint_limits: (0.005, 0.012),
             terminal_heating: HashMap::new(),
             min_oa_flow_mass: None,
+            zone_exhaust: Vec::new(),
             std_air_density: 1.204,
             dd_boxes: HashMap::new(),
             dd_deck_temps: (None, None),
@@ -2021,6 +2323,7 @@ mod tests {
             dcv: false,
             cooling_sat_reset: None,
             heating_sat_reset: None,
+            sat_reset_base: None,
             zone_oa_data: vec![],
             design_supply_flow: 0.5,
             zone_outdoor_air: HashMap::new(),
@@ -2050,6 +2353,7 @@ mod tests {
         heat_loads: HashMap<String, f64>,
         modes: HashMap<String, HvacMode>,
         empty: HashMap<String, f64>,
+        moisture_lines: HashMap<String, openbse_envelope::zone::MoistureLoadLine>,
         returns: HashMap<String, f64>,
     }
 
@@ -2066,6 +2370,7 @@ mod tests {
                 zone_humidity_ratios: &self.empty,
                 zone_max_rh: &self.empty,
                 zone_min_rh: &self.empty,
+                zone_moisture_lines: &self.moisture_lines,
                 zone_return_temps: &self.returns,
                 predictor_modes: &self.modes,
                 t_outdoor,
@@ -2157,6 +2462,7 @@ mod tests {
                 .into_iter()
                 .collect(),
             empty: HashMap::new(),
+            moisture_lines: HashMap::new(),
             returns: HashMap::new(),
         };
         let oa_at = |density: f64| {
@@ -2224,6 +2530,82 @@ mod tests {
         assert_eq!(li.coil_role("Steam Humidifier"), CoilRole::Humidifier);
     }
 
+    /// `cycling: modulating` is E+ UnitarySystem load control: with a
+    /// continuous fan a gas or electric heating coil aims at the supply
+    /// temperature that delivers the load, ṁ·cp·(T_sup − T_sp) = Q; with a
+    /// cycling fan, or a heat-pump coil, the coil fires at the design supply
+    /// temperature and the runtime fraction meets the load.
+    #[test]
+    fn modulating_psz_heats_to_the_load_on_a_continuous_fan() {
+        use openbse_io::input::{CyclingMethod, FanOperatingMode};
+        let mut li = make_loop(
+            AirLoopSystemType::PszAc,
+            vec![
+                "Fan".to_string(),
+                "Furnace".to_string(),
+                "DX Coil".to_string(),
+            ],
+        );
+        li.fan_names.insert("Fan".to_string());
+        li.component_kinds
+            .insert("Furnace".to_string(), ComponentKind::HeatingCoil);
+        li.component_kinds
+            .insert("DX Coil".to_string(), ComponentKind::CoolingCoil);
+        li.cycling = CyclingMethod::Modulating;
+        li.heating_supply_temp = 40.0;
+        li.fan_operating_mode = FanOperatingMode::Continuous;
+        li.supply_fan_dt = 0.5;
+        let heat_dat = |li: &LoopInfo, load: f64| {
+            let f = fcu_fixture(HvacMode::Heating, load, 0.0);
+            build_psz_signals(li, &f.ctx(0.0)).coil_setpoints["Furnace"]
+        };
+        let cp = openbse_psychrometrics::cp_air_fn_w(0.008);
+        assert!(psz_modulates_heating(&li));
+        let expected = 21.0 + 1000.0 / (0.5 * cp) - 0.5;
+        assert!((heat_dat(&li, 1000.0) - expected).abs() < 1e-9);
+        // More load than the design supply temperature carries: held there.
+        assert_eq!(heat_dat(&li, 50_000.0), 40.0);
+
+        // A cycling fan cycles the whole unit at full output.
+        li.fan_operating_mode = FanOperatingMode::Cycling;
+        assert!(!psz_modulates_heating(&li));
+        assert_eq!(heat_dat(&li, 1000.0), 40.0);
+
+        // PTAC and PTHP units keep their part-load cycling.
+        li.system_type = AirLoopSystemType::Ptac;
+        assert!(!psz_modulates_heating(&li));
+        li.system_type = AirLoopSystemType::PszAc;
+
+        // A heat-pump heating coil cycles its compressor.
+        li.fan_operating_mode = FanOperatingMode::Continuous;
+        li.dx_compressor_names.insert("Furnace".to_string());
+        assert!(!psz_modulates_heating(&li));
+        assert_eq!(heat_dat(&li, 1000.0), 40.0);
+    }
+
+    /// A ground-source heat pump on a PSZ takes the heating target in
+    /// heating, full cooling in cooling, and the off setpoint in dead band;
+    /// left at its input setpoint it heated only up to the cooling target.
+    #[test]
+    fn gshp_takes_each_modes_setpoint() {
+        let mut li = make_loop(
+            AirLoopSystemType::PszAc,
+            vec!["Fan".to_string(), "GSHP".to_string()],
+        );
+        li.fan_names.insert("Fan".to_string());
+        li.component_kinds
+            .insert("GSHP".to_string(), ComponentKind::Gshp);
+        li.dx_compressor_names.insert("GSHP".to_string());
+        li.heating_supply_temp = 40.0;
+        let sp = |mode, heat, cool| {
+            let f = fcu_fixture(mode, heat, cool);
+            build_psz_signals(&li, &f.ctx(0.0)).coil_setpoints["GSHP"]
+        };
+        assert_eq!(sp(HvacMode::Heating, 1000.0, 0.0), 40.0);
+        assert_eq!(sp(HvacMode::Cooling, 0.0, 1000.0), -10.0);
+        assert_eq!(sp(HvacMode::Deadband, 0.0, 0.0), 99.0);
+    }
+
     fn fcu_fixture(mode: HvacMode, heat: f64, cool: f64) -> Fixture {
         Fixture {
             temps: one("Zone1", 22.0),
@@ -2234,6 +2616,7 @@ mod tests {
             heat_loads: one("Zone1", heat),
             modes: [("Zone1".to_string(), mode)].into_iter().collect(),
             empty: HashMap::new(),
+            moisture_lines: HashMap::new(),
             returns: HashMap::new(),
         }
     }
@@ -2340,6 +2723,7 @@ mod tests {
                 .into_iter()
                 .collect(),
             empty: HashMap::new(),
+            moisture_lines: HashMap::new(),
             returns: HashMap::new(),
         };
         let signals = build_psz_signals(&li, &f.ctx(-5.0));
@@ -2376,6 +2760,7 @@ mod tests {
                 .into_iter()
                 .collect(),
             empty: HashMap::new(),
+            moisture_lines: HashMap::new(),
             returns: HashMap::new(),
         };
         let signals = build_psz_signals(&li, &f.ctx(-5.0));
@@ -2405,9 +2790,48 @@ mod tests {
                 .into_iter()
                 .collect(),
             empty: HashMap::new(),
+            moisture_lines: HashMap::new(),
             returns: HashMap::new(),
         };
         (li, f)
+    }
+
+    #[test]
+    fn fan_placement_is_read_per_coil() {
+        let mut li = make_loop(
+            AirLoopSystemType::PszAc,
+            vec!["Fan".into(), "Cooling Coil".into(), "Heating Coil".into()],
+        );
+        li.fan_names = ["Fan".to_string()].into_iter().collect();
+        assert!(!li.fan_downstream_of(CoilRole::Cooling));
+        assert!(!li.fan_downstream_of(CoilRole::Heating));
+        li.component_names = vec!["Cooling Coil".into(), "Heating Coil".into(), "Fan".into()];
+        assert!(li.fan_downstream_of(CoilRole::Cooling));
+        assert!(li.fan_downstream_of(CoilRole::Heating));
+    }
+
+    /// Under a SingleZone reset a blow-through fan has heated the mixed air
+    /// before the coil, so the economizer aims a fan rise below the coil's
+    /// setpoint (E+ SetpointManager:MixedAir); draw-through, the coil's
+    /// setpoint already carries the rise.
+    #[test]
+    fn single_zone_economizer_target_follows_fan_placement() {
+        let (mut li, f) = econ_loop_and_fixture(5030.0);
+        li.economizer_options.load_reset = None;
+        li.cooling_sat_reset = Some(openbse_io::input::SatResetConfig::SingleZone {
+            sat_min: 10.0,
+            sat_max: 30.0,
+        });
+        li.supply_fan_dt = 1.0;
+        li.cooling_supply_temp = 20.0; // the coil's setpoint from the reset
+        li.component_names = vec!["DX Cooling Coil".into(), "Fan".into()];
+        li.fan_names = ["Fan".to_string()].into_iter().collect();
+        // 0 °C outdoor, 25 °C return: mixed at 20 °C is 20% outdoor air.
+        let oa = build_psz_signals(&li, &f.ctx(0.0)).oa_fraction.unwrap();
+        assert!((oa - 0.2).abs() < 1e-9, "draw-through oa_fraction = {oa}");
+        li.component_names = vec!["Fan".into(), "DX Cooling Coil".into()];
+        let oa = build_psz_signals(&li, &f.ctx(0.0)).oa_fraction.unwrap();
+        assert!((oa - 0.24).abs() < 1e-9, "blow-through oa_fraction = {oa}");
     }
 
     #[test]
@@ -2468,10 +2892,69 @@ mod tests {
             heat_loads: HashMap::new(),
             modes: HashMap::new(),
             empty: HashMap::new(),
+            moisture_lines: HashMap::new(),
             returns: HashMap::new(),
         };
         let signals = build_doas_signals(&li, &f.ctx(30.0));
         assert_eq!(signals.oa_fraction, Some(1.0));
+    }
+
+    /// The flow and temperatures are the loop's, not fractions of the zones'
+    /// design flows and setpoints, and the zones share the air as they require it.
+    #[test]
+    fn doas_uses_the_loops_flow_and_temperatures() {
+        let mut li = make_loop(AirLoopSystemType::Doas, vec!["OA Coil".to_string()]);
+        li.component_kinds
+            .insert("OA Coil".to_string(), ComponentKind::CoolingCoil);
+        li.served_zones = vec!["Zone1".to_string(), "Zone2".to_string()];
+        li.cooling_supply_temp = 18.0;
+        li.design_supply_flow = 1.0;
+        li.std_air_density = 1.2;
+        li.zone_outdoor_air =
+            HashMap::from([("Zone1".to_string(), 0.3), ("Zone2".to_string(), 0.9)]);
+        let f = Fixture {
+            temps: one("Zone1", 21.0),
+            heat_sp: one("Zone1", 21.0),
+            cool_sp: one("Zone1", 24.0),
+            flows: one("Zone1", 40.0),
+            cool_loads: HashMap::new(),
+            heat_loads: HashMap::new(),
+            modes: HashMap::new(),
+            empty: HashMap::new(),
+            moisture_lines: HashMap::new(),
+            returns: HashMap::new(),
+        };
+        let signals = build_doas_signals(&li, &f.ctx(30.0));
+        assert_eq!(signals.coil_setpoints["OA Coil"], 18.0);
+        assert_eq!(signals.air_mass_flows["OA Coil"], 1.2);
+        assert!((signals.zone_air_flows["Zone1"] - 0.3).abs() < 1e-12);
+        assert!((signals.zone_air_flows["Zone2"] - 0.9).abs() < 1e-12);
+        // Mass: the zones receive exactly the air the loop moves.
+        let delivered: f64 = signals.zone_air_flows.values().sum();
+        assert!((delivered - signals.air_mass_flows["OA Coil"]).abs() < 1e-12);
+        // Sizing autosizes the fan to the zones' requirement.
+        assert!((doas_design_flow(&li) - 1.2).abs() < 1e-12);
+    }
+
+    /// A draw-through fan warms the air after the coils, so the coils aim
+    /// below the loop's supply temperatures by its rise.
+    #[test]
+    fn doas_coils_allow_for_a_draw_through_fan() {
+        let mut li = make_loop(
+            AirLoopSystemType::Doas,
+            vec!["OA Coil".to_string(), "Fan".to_string()],
+        );
+        li.component_kinds
+            .insert("OA Coil".to_string(), ComponentKind::CoolingCoil);
+        li.fan_names = HashSet::from(["Fan".to_string()]);
+        li.heating_supply_temp = 20.0;
+        li.cooling_supply_temp = 18.0;
+        li.supply_fan_dt = 0.7;
+        let (heat, cool) = doas_supply_temps(&li);
+        assert!((heat - 19.3).abs() < 1e-12);
+        assert!((cool - 17.3).abs() < 1e-12);
+        li.component_names.reverse();
+        assert_eq!(doas_supply_temps(&li), (20.0, 18.0));
     }
 
     /// Two VAV zones at 24 °C in deadband (both boxes at minimum flow).
@@ -2498,6 +2981,7 @@ mod tests {
                 .map(|z| (z.to_string(), HvacMode::Deadband))
                 .collect(),
             empty: HashMap::new(),
+            moisture_lines: HashMap::new(),
             returns: HashMap::new(),
         };
         // Outdoor air between the zone air (24 °C) and the mixed return.
@@ -2512,6 +2996,93 @@ mod tests {
         assert!((lights.return_air_temp.unwrap() - 26.0).abs() < 1e-12);
         assert!(lights.economizer_active);
         assert_eq!(lights.oa_fraction, Some(1.0));
+    }
+
+    /// The mixed-air setpoint that heat recovery is throttled to is the one
+    /// the coils aim at: the supply setpoint less the fan's rise at this flow,
+    /// not at design flow.
+    #[test]
+    fn vav_mixed_air_setpoint_matches_the_coils() {
+        let mut li = make_loop(
+            AirLoopSystemType::Vav,
+            vec!["CHW Coil".to_string(), "Fan".to_string()],
+        );
+        li.component_kinds
+            .insert("Fan".to_string(), ComponentKind::Fan);
+        li.component_kinds
+            .insert("CHW Coil".to_string(), ComponentKind::CoolingCoil);
+        li.fan_names = HashSet::from(["Fan".to_string()]);
+        li.supply_fan_dt = 2.0;
+        li.fixed_cooling_sat = true;
+        li.cooling_supply_temp = 12.8;
+        let f = Fixture {
+            temps: one("Zone1", 24.0),
+            heat_sp: one("Zone1", 21.0),
+            cool_sp: one("Zone1", 25.0),
+            flows: one("Zone1", 1.0),
+            cool_loads: HashMap::new(),
+            heat_loads: HashMap::new(),
+            modes: [("Zone1".to_string(), HvacMode::Deadband)]
+                .into_iter()
+                .collect(),
+            empty: HashMap::new(),
+            moisture_lines: HashMap::new(),
+            returns: HashMap::new(),
+        };
+        let s = build_vav_signals(&li, &f.ctx(5.0), false);
+        let coil = s.coil_setpoints["CHW Coil"];
+        assert_eq!(s.mixed_air_setpoint, Some(coil));
+        // At minimum flow the fan adds a fraction of its design rise.
+        let flow_frac = s.air_mass_flows["CHW Coil"] / 1.0;
+        assert!(flow_frac < 1.0, "{flow_frac}");
+        let rise = 2.0 * flow_frac * flow_frac;
+        assert!((coil - (12.8 - rise)).abs() < 1e-9, "{coil}");
+    }
+
+    /// A loop can heat or cool only with equipment that does.
+    #[test]
+    fn a_loop_conditions_only_with_its_equipment() {
+        let mut li = make_loop(
+            AirLoopSystemType::PszAc,
+            vec!["Fan".to_string(), "Heater".to_string()],
+        );
+        li.component_kinds
+            .insert("Fan".to_string(), ComponentKind::Fan);
+        li.component_kinds
+            .insert("Heater".to_string(), ComponentKind::HeatingCoil);
+        assert!(li.can_condition(HvacMode::Heating));
+        assert!(!li.can_condition(HvacMode::Cooling));
+        li.component_kinds
+            .insert("Heater".to_string(), ComponentKind::Gshp);
+        assert!(li.can_condition(HvacMode::Heating) && li.can_condition(HvacMode::Cooling));
+        assert!(!li.can_condition(HvacMode::Deadband));
+    }
+
+    /// A cooling supply temperature above the Warmest maximum holds the supply
+    /// there instead of inverting the clamp (which panics), in cooling and in
+    /// deadband alike.
+    #[test]
+    fn vav_supply_above_the_warmest_maximum_holds_it() {
+        let mut li = make_loop(AirLoopSystemType::Vav, vec!["CHW Coil".to_string()]);
+        li.component_kinds
+            .insert("CHW Coil".to_string(), ComponentKind::CoolingCoil);
+        li.cooling_supply_temp = WARMEST_SAT_MAX + 2.0;
+        for (mode, load) in [(HvacMode::Cooling, 5_000.0), (HvacMode::Deadband, 0.0)] {
+            let f = Fixture {
+                temps: one("Zone1", 25.0),
+                heat_sp: one("Zone1", 21.0),
+                cool_sp: one("Zone1", 24.0),
+                flows: one("Zone1", 1.0),
+                cool_loads: one("Zone1", load),
+                heat_loads: HashMap::new(),
+                modes: [("Zone1".to_string(), mode)].into_iter().collect(),
+                empty: HashMap::new(),
+                moisture_lines: HashMap::new(),
+                returns: HashMap::new(),
+            };
+            let signals = build_vav_signals(&li, &f.ctx(30.0), true);
+            assert_eq!(signals.coil_setpoints["CHW Coil"], li.cooling_supply_temp);
+        }
     }
 
     #[test]

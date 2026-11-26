@@ -74,7 +74,11 @@ pub struct ModelInput {
     /// Opaque construction definitions (layers: outside to inside)
     #[serde(default)]
     pub constructions: Vec<openbse_envelope::Construction>,
-    /// Window construction definitions (U-factor + SHGC based)
+    /// Glass layer definitions for layer-by-layer window constructions
+    #[serde(default)]
+    pub glazing_materials: Vec<openbse_envelope::GlazingMaterial>,
+    /// Window construction definitions: simple glazing (U-factor and SHGC)
+    /// or glass layers and gas gaps
     #[serde(default)]
     pub window_constructions: Vec<openbse_envelope::WindowConstruction>,
     /// Simple construction definitions (U-factor + thermal capacity based)
@@ -108,9 +112,16 @@ pub struct ModelInput {
     /// Lights definitions (assignable to zones)
     #[serde(default)]
     pub lights: Vec<openbse_envelope::LightsInput>,
-    /// Equipment gain definitions (assignable to zones)
+    /// Daylighting controls that dim a zone's lights (E+
+    /// `Daylighting:Controls`, split-flux method)
+    #[serde(default)]
+    pub daylighting_controls: Vec<openbse_envelope::DaylightingControlInput>,
+    /// Equipment gain definitions (assignable to zones), of any fuel
     #[serde(default)]
     pub equipment: Vec<openbse_envelope::EquipmentGainInput>,
+    /// Outdoor-temperature-controlled baseboard heat (assignable to zones)
+    #[serde(default)]
+    pub outdoor_controlled_baseboards: Vec<openbse_envelope::OutdoorControlledBaseboardInput>,
     /// Infiltration definitions (assignable to zones)
     #[serde(default)]
     pub infiltration: Vec<openbse_envelope::InfiltrationTopLevel>,
@@ -236,6 +247,15 @@ fn default_submeter() -> String {
     "General".to_string()
 }
 
+/// A daylight-saving period: E+ date strings (`2nd Sunday in March`,
+/// `Last Sunday in October`, `3/10`, `March 10`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DaylightSavingInput {
+    pub start: String,
+    pub end: String,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SimulationSettings {
@@ -269,6 +289,15 @@ pub struct SimulationSettings {
     /// - `ocean`: Unobstructed ocean or large lake exposure.
     #[serde(default)]
     pub terrain: openbse_envelope::convection::Terrain,
+
+    /// Outside face convection model, E+ `SurfaceConvectionAlgorithm:Outside`.
+    ///
+    /// - `doe2` (default, as E+): TARP natural convection combined with
+    ///   MoWiTT forced convection, scaled by roughness.
+    /// - `tarp`: TARP natural convection plus Sparrow's finite-plate forced
+    ///   convection, which falls with the size of the face.
+    #[serde(default)]
+    pub outside_convection_algorithm: openbse_envelope::convection::OutsideConvectionAlgorithm,
 
     /// Controls how infiltration interacts with exhaust fans and HVAC airflows.
     ///
@@ -319,6 +348,18 @@ pub struct SimulationSettings {
     /// 90.1 Appendix G ratio; the EnergyPlus default is 1.0.
     #[serde(default = "default_cooling_sizing_factor")]
     pub cooling_sizing_factor: f64,
+
+    /// How far below its heating setpoint a conditioned zone must be to count
+    /// as unmet [K] (E+ `OutputControl:ReportingTolerances` Tolerance for Time
+    /// Heating Setpoint Not Met; default 0.2, E+'s default).
+    #[serde(default = "default_unmet_tolerance")]
+    pub unmet_heating_tolerance: f64,
+
+    /// How far above its cooling setpoint a conditioned zone must be to count
+    /// as unmet [K] (E+ `OutputControl:ReportingTolerances` Tolerance for Time
+    /// Cooling Setpoint Not Met; default 0.2, E+'s default).
+    #[serde(default = "default_unmet_tolerance")]
+    pub unmet_cooling_tolerance: f64,
 
     /// Solar distribution method for interior beam solar radiation.
     ///
@@ -372,10 +413,11 @@ pub struct SimulationSettings {
 
     /// Timesteps over which design-day zone loads are averaged before their
     /// peak is taken (E+ `Sizing:Parameters` Timesteps in Averaging Window).
-    /// Default 1: the peak timestep. A window of an hour keeps a setpoint step
+    /// Default: one hour of timesteps, as E+, which keeps a setpoint step
     /// (morning warm-up or pull-down) from sizing on a one-timestep spike.
-    #[serde(default = "default_sizing_averaging_window")]
-    pub sizing_averaging_window: u32,
+    /// Read through [`SimulationSettings::averaging_window`].
+    #[serde(default)]
+    pub sizing_averaging_window: Option<u32>,
 
     /// Holiday dates.  On these days every schedule uses its `holiday`
     /// profile (falling back to `sunday` → `weekend` → `weekday`).
@@ -391,6 +433,17 @@ pub struct SimulationSettings {
     /// ```
     #[serde(default)]
     pub holidays: Vec<HolidayDate>,
+
+    /// Daylight-saving period (E+ `RunPeriodControl:DaylightSavingTime`):
+    /// on every day from `start` to `end`, both inclusive, schedules are read
+    /// one clock hour later. Absent: no daylight saving. Design days are
+    /// never shifted.
+    ///
+    /// ```yaml
+    /// daylight_saving_time: {start: 2nd Sunday in March, end: 1st Sunday in November}
+    /// ```
+    #[serde(default)]
+    pub daylight_saving_time: Option<DaylightSavingInput>,
 
     /// Whether to execute parametric runs defined in the `parametrics:` section.
     ///
@@ -416,10 +469,6 @@ fn default_auto_cooling_design_days() -> bool {
     true
 }
 
-fn default_sizing_averaging_window() -> u32 {
-    1
-}
-
 /// A fixed-date holiday.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -441,6 +490,9 @@ fn default_heating_sizing_factor() -> f64 {
 fn default_cooling_sizing_factor() -> f64 {
     1.15
 }
+fn default_unmet_tolerance() -> f64 {
+    0.2
+}
 fn default_timesteps_per_hour() -> u32 {
     1
 }
@@ -458,6 +510,12 @@ fn default_end_day() -> u32 {
 }
 
 impl SimulationSettings {
+    /// The sizing averaging window [timesteps]: the input, or one hour.
+    pub fn averaging_window(&self) -> u32 {
+        self.sizing_averaging_window
+            .unwrap_or(self.timesteps_per_hour)
+    }
+
     pub fn to_config(&self) -> SimulationConfig {
         SimulationConfig {
             timesteps_per_hour: self.timesteps_per_hour,
@@ -533,7 +591,7 @@ pub enum AirLoopSystemType {
 ///     controls:
 ///       cooling_supply_temp: 13.0
 ///       heating_supply_temp: 35.0
-///       cycling: proportional
+///       cycling: modulating
 ///       deadband: 1.0
 ///       design_zone_flow: 0.5
 ///       minimum_damper_position: 0.15
@@ -554,7 +612,15 @@ pub struct AirLoopControls {
     /// Design Supply Air Humidity Ratio; default 0.008).
     #[serde(default = "default_controls_cooling_supply_w")]
     pub cooling_supply_humidity_ratio: f64,
-    /// Capacity control method: on_off or proportional (default: proportional)
+    /// Humidity ratio of the supply air the served zones' design heating and
+    /// cooling flows are computed with [kg/kg]: its specific heat turns each
+    /// design-day load into a flow (E+ `Sizing:Zone` Zone Heating / Cooling
+    /// Design Supply Air Humidity Ratio; default 0.008 each).
+    #[serde(default = "default_controls_cooling_supply_w")]
+    pub zone_heating_supply_humidity_ratio: f64,
+    #[serde(default = "default_controls_cooling_supply_w")]
+    pub zone_cooling_supply_humidity_ratio: f64,
+    /// Capacity control method: modulating (default), on_off or proportional
     #[serde(default)]
     pub cycling: CyclingMethod,
     /// Deadband width [°C] around setpoints (default 1.0)
@@ -564,8 +630,8 @@ pub struct AirLoopControls {
     #[serde(default = "default_controls_zone_flow")]
     pub design_zone_flow: AutosizeValue,
     /// Minimum outdoor air damper position [0-1].
-    /// If omitted, auto-calculated from zone outdoor air requirements.
-    /// Falls back to 0.20 if no outdoor_air definitions exist.
+    /// If omitted, the served zones' outdoor-air requirement over the fan
+    /// flow, or 0 when no served zone states one.
     #[serde(default)]
     pub minimum_damper_position: Option<f64>,
     /// Economizer settings (optional — absent = no economizer)
@@ -576,6 +642,16 @@ pub struct AirLoopControls {
     /// Continuous: fan runs at full speed always, coils cycle.
     #[serde(default)]
     pub fan_operating_mode: FanOperatingMode,
+    /// Supply flow with the coils off, as a fraction of design, for a fan that
+    /// keeps running (E+ `UnitarySystemPerformance:Multispeed` No Load Supply
+    /// Air Flow Rate Ratio). Default 1. Below 1 the unit runs as a multi-speed
+    /// unitary system (see `heating_flow_fraction`).
+    #[serde(default)]
+    pub no_load_flow_fraction: Option<f64>,
+    /// Supply flow while heating, as a fraction of design (E+ Heating Speed
+    /// Supply Air Flow Ratio). Default 1.
+    #[serde(default)]
+    pub heating_flow_fraction: Option<f64>,
     /// Cooling supply air temperature reset (optional — absent = fixed SAT)
     #[serde(default)]
     pub cooling_sat_reset: Option<SatResetConfig>,
@@ -617,6 +693,14 @@ pub struct AirLoopControls {
     /// mixed air, rather than the default frost-protection-only behavior.
     #[serde(default)]
     pub preheat_setpoint: Option<f64>,
+    /// Central heating design supply air temperature [°C] (E+ `Sizing:System`
+    /// Central Heating Design Supply Air Temperature), distinct from the zone
+    /// heating supply temperature in `heating_supply_temp`. When set, terminal
+    /// reheat coils are sized for primary air at this temperature, as E+ sizes
+    /// them on a loop with a central heating coil (`GetHeatingSATempForSizing`).
+    /// Default: the loop's `cooling_supply_temp`.
+    #[serde(default)]
+    pub central_heating_supply_temp: Option<f64>,
     /// Fixed minimum outdoor-air flow [m³/s] (optional). Models an OA controller
     /// that holds a constant outdoor-air VOLUME regardless of supply flow, so the
     /// OA fraction rises as a VAV system throttles down (E+ Controller:OutdoorAir
@@ -663,12 +747,16 @@ impl Default for AirLoopControls {
             heating_supply_temp: 35.0,
             cooling_supply_temp: 13.0,
             cooling_supply_humidity_ratio: default_controls_cooling_supply_w(),
+            zone_heating_supply_humidity_ratio: default_controls_cooling_supply_w(),
+            zone_cooling_supply_humidity_ratio: default_controls_cooling_supply_w(),
             cycling: CyclingMethod::default(),
             deadband: 1.0,
             design_zone_flow: AutosizeValue::Value(0.5),
             minimum_damper_position: None,
             economizer: None,
             fan_operating_mode: FanOperatingMode::default(),
+            no_load_flow_fraction: None,
+            heating_flow_fraction: None,
             cooling_sat_reset: None,
             heating_sat_reset: None,
             outdoor_air_fraction: None,
@@ -677,6 +765,7 @@ impl Default for AirLoopControls {
             return_fan_total_efficiency: 0.7,
             fixed_cooling_sat: false,
             preheat_setpoint: None,
+            central_heating_supply_temp: None,
             minimum_oa_flow: None,
             minimum_oa_schedule: None,
             zone_sum: ZoneSum::default(),
@@ -696,6 +785,12 @@ fn default_controls_cooling_supply() -> f64 {
 fn default_controls_deadband() -> f64 {
     1.0
 }
+/// Terminal reheat capacity when not given: autosized, as E+ water and
+/// electric reheat coils are.
+fn default_reheat_capacity() -> AutosizeValue {
+    AutosizeValue::Autosize
+}
+
 fn default_controls_zone_flow() -> AutosizeValue {
     AutosizeValue::Value(0.5)
 }
@@ -759,6 +854,20 @@ pub enum PlantResetConfig {
         /// Outdoor temp threshold for sp_min [°C]
         oa_high: f64,
     },
+    /// Reset to hold a return-water temperature (E+
+    /// `SetpointManager:ReturnTemperature:ChilledWater` and `:HotWater`).
+    /// Each timestep the supply setpoint is the return target less (chilled
+    /// water) or plus (hot water) the supply side's last return-to-supply
+    /// temperature difference, within the limits. A loop whose design supply
+    /// temperature is below the return target is chilled water.
+    ReturnTemperature {
+        /// Lowest supply setpoint [°C] (chilled water: the design supply)
+        sp_min: f64,
+        /// Highest supply setpoint [°C] (hot water: the design supply)
+        sp_max: f64,
+        /// Return water temperature to hold [°C]
+        return_target: f64,
+    },
 }
 
 /// Capacity control method for an air loop.
@@ -767,10 +876,18 @@ pub enum PlantResetConfig {
 #[serde(rename_all = "snake_case")]
 #[derive(Default)]
 pub enum CyclingMethod {
-    /// On/off cycling — system runs at full capacity or not at all
-    OnOff,
-    /// Proportional modulation — system output varies with load
+    /// E+ load-based unitary control (default): the unit meets the zone's
+    /// load each timestep. A cycling fan, or a compressor heating coil,
+    /// runs at full output for a runtime fraction; with a continuous fan a
+    /// gas, electric or water heating coil instead modulates the supply
+    /// temperature to the one that meets the load.
     #[default]
+    Modulating,
+    /// On/off cycling: full output for a runtime fraction that meets the load.
+    OnOff,
+    /// Proportional supply-temperature control: the heating supply
+    /// temperature ramps from the setpoint to `heating_supply_temp` over a
+    /// 5 K zone error, so the zone settles below setpoint (droop).
     Proportional,
 }
 
@@ -798,9 +915,10 @@ pub enum FanOperatingMode {
     /// Fan power = rated (always). Fan heat always delivered to zone.
     /// Use for PSZ-AC systems with Fan:ConstantVolume.
     Continuous,
-    /// Fan runs at full speed when actively heating or cooling, but
-    /// shuts OFF completely during deadband (no load).
-    /// Matches E+ PTAC with Fan:OnOff and No Load Supply Air Flow Rate = 0.
+    /// Fan runs at full speed for the whole timestep whenever its zone has a
+    /// heating or cooling load the unit can meet, its coils cycling, and stops
+    /// with no load. Matches E+ ZoneHVAC:UnitHeater with Fan Operation During
+    /// No Heating = No, and a PTAC with No Load Supply Air Flow Rate = 0.
     ContinuousNoLoadOff,
 }
 
@@ -923,6 +1041,18 @@ pub struct AirLoopInput {
     /// runs every hour. Default: None (always available).
     #[serde(default)]
     pub availability_schedule: Option<String>,
+    /// Night-cycle availability manager (E+ `AvailabilityManager:NightCycle`
+    /// with FixedRunTime): while `availability_schedule` has the unit off, it
+    /// runs the unit for `cycling_run_time` whenever a zone drifts past its
+    /// heating or cooling setpoint by half the `thermostat_tolerance`.
+    #[serde(default)]
+    pub night_cycle: Option<NightCycleInput>,
+    /// Outdoor dry-bulb [°C] above which the loop is off (E+
+    /// `AvailabilityManager:HighTemperatureTurnOff` sensing outdoor air), e.g.
+    /// an entry heater locked out in mild weather. Overrides the
+    /// availability schedule and any night cycle.
+    #[serde(default)]
+    pub high_temperature_turn_off: Option<f64>,
     /// Demand-controlled ventilation: modulates outdoor air based on real-time
     /// occupancy.  When `true`, the minimum OA fraction is recalculated each
     /// timestep from each zone's current occupancy schedule value × per-person
@@ -988,6 +1118,76 @@ impl AirLoopInput {
 
 fn default_min_vav_fraction() -> f64 {
     0.30
+}
+
+/// Night-cycle availability manager, as EnergyPlus `AvailabilityManager:NightCycle`
+/// with Cycling Run Time Control Type `FixedRunTime`.
+///
+/// While the air loop's `availability_schedule` is off, the unit is cycled on
+/// when a zone's air (at the start of the timestep) is below its heating
+/// setpoint, or above its cooling setpoint, by more than half the thermostat
+/// tolerance. It then runs for the cycling run time (whole timesteps), is held
+/// off for one timestep, and is checked again. While cycled on the fan cycles
+/// with the coils, as E+ runs a unit whose fan operating-mode schedule is its
+/// availability schedule (how the DOE prototypes set it), and outdoor air
+/// follows `minimum_oa_schedule`.
+///
+/// ```yaml
+/// night_cycle:
+///   control: cycle_on_any
+///   thermostat_tolerance: 1.0
+///   cycling_run_time: 1800
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NightCycleInput {
+    /// Which zones can cycle the unit on (E+ Control Type): `cycle_on_any`
+    /// (default) for any zone the loop serves, `cycle_on_control_zone` for its
+    /// control zone (the first served zone).
+    #[serde(default)]
+    pub control: NightCycleControl,
+    /// Thermostat tolerance [K] (E+ default 1.0). The unit cycles on when a
+    /// zone is half of it beyond a setpoint.
+    #[serde(default = "default_night_cycle_tolerance")]
+    pub thermostat_tolerance: f64,
+    /// Cycling run time [s] (E+ default 3600), rounded to whole timesteps.
+    #[serde(default = "default_night_cycle_run_time")]
+    pub cycling_run_time: f64,
+}
+
+/// Zones a night-cycle manager watches (E+ `AvailabilityManager:NightCycle`
+/// Control Type).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NightCycleControl {
+    /// Any zone the loop serves (E+ CycleOnAny).
+    #[default]
+    CycleOnAny,
+    /// The loop's control zone, its first served zone (E+ CycleOnControlZone).
+    CycleOnControlZone,
+}
+
+fn default_night_cycle_tolerance() -> f64 {
+    1.0
+}
+
+fn default_night_cycle_run_time() -> f64 {
+    3600.0
+}
+
+impl NightCycleInput {
+    /// Timesteps a cycle runs (E+ `CyclingTimeSteps`: the run time in
+    /// timesteps, rounded).
+    pub fn run_timesteps(&self, timesteps_per_hour: u32) -> i64 {
+        ((self.cycling_run_time / 3600.0) * timesteps_per_hour as f64).round() as i64
+    }
+
+    /// Whether a zone at `temp` is far enough past its setpoints to cycle the
+    /// unit on: E+ uses half the tolerance under FixedRunTime.
+    pub fn zone_calls(&self, temp: f64, heat_sp: f64, cool_sp: f64) -> bool {
+        let tol = 0.5 * self.thermostat_tolerance;
+        temp < heat_sp - tol || temp > cool_sp + tol
+    }
 }
 
 /// Individual equipment specification.
@@ -1085,6 +1285,9 @@ pub struct ExternalAirInput {
     /// Output variable names expected from the process each timestep.
     /// See [`openbse_cosim::ExternalAirComponent`] for available names.
     pub outputs: Vec<String>,
+    /// Longest wait for one response before the run stops [s] (default 60).
+    #[serde(default = "default_cosim_timeout")]
+    pub timeout_s: f64,
 }
 
 /// Electric steam humidifier.
@@ -1116,6 +1319,27 @@ pub struct HumidifierInput {
     /// whether or not it is humidifying [W] (default 0).
     #[serde(default)]
     pub standby_power: f64,
+    /// Rated steam output [m³/s of water] (E+ `Humidifier:Steam:Electric`
+    /// Rated Capacity, water at 5.05 °C). When given, power follows
+    /// `rated_power` per kg of this capacity, as E+ does with both inputs;
+    /// when omitted, the capacity is what `rated_power` makes from 20 °C water.
+    #[serde(default)]
+    pub rated_capacity: Option<f64>,
+    /// Lowest supply humidity ratio the humidifier holds [kg/kg], whether or
+    /// not a zone needs moisture (E+ SetpointManager:MultiZone:Humidity:Minimum
+    /// Minimum Setpoint Humidity Ratio, default 0.005).
+    #[serde(default = "default_humidifier_min_setpoint")]
+    pub minimum_setpoint_humidity_ratio: f64,
+    /// Highest supply humidity ratio it humidifies to [kg/kg] (E+ Maximum
+    /// Setpoint Humidity Ratio, default 0.012).
+    #[serde(default = "default_humidifier_max_setpoint")]
+    pub maximum_setpoint_humidity_ratio: f64,
+}
+fn default_humidifier_min_setpoint() -> f64 {
+    0.005
+}
+fn default_humidifier_max_setpoint() -> f64 {
+    0.012
 }
 fn default_humidifier_power() -> f64 {
     100_000.0
@@ -1276,6 +1500,26 @@ pub struct FanInput {
     /// Default matches typical ASHRAE forward-curved centrifugal fan.
     #[serde(default)]
     pub vav_coefficients: Option<[f64; 5]>,
+    /// Discrete speeds of a `constant_volume` or `on_off` fan, ascending
+    /// (E+ `Fan:SystemModel` with Speed Control Method Discrete): each speed's
+    /// flow and electric power as fractions of design. A unitary system runs
+    /// the fan at the flow its mode calls for (`controls.no_load_flow_fraction`,
+    /// `controls.heating_flow_fraction`, a two-speed coil's speed flow
+    /// fractions) and the power follows these points. Absent: power in
+    /// proportion to flow.
+    #[serde(default)]
+    pub speeds: Vec<FanSpeedInput>,
+}
+
+/// One discrete fan speed (E+ `Fan:SystemModel` Speed N Flow Fraction and
+/// Speed N Electric Power Fraction).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FanSpeedInput {
+    /// Flow as a fraction of the design flow [0-1]
+    pub flow_fraction: f64,
+    /// Electric power as a fraction of the design power [0-1]
+    pub power_fraction: f64,
 }
 
 fn default_fan_source() -> String {
@@ -1500,23 +1744,46 @@ fn default_dx_coil_setpoint() -> f64 {
     13.0
 }
 
-/// One speed stage for a multi-speed DX cooling coil.
+/// One speed of a multi-speed DX cooling coil (E+ `Coil:Cooling:DX:MultiSpeed`
+/// Speed N fields).
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DXSpeedInput {
-    /// Total cooling capacity at rated conditions [W]
+    /// Gross total cooling capacity at rated conditions [W]
     pub rated_capacity: f64,
-    /// COP at rated conditions
+    /// Gross COP at rated conditions
     #[serde(default = "default_cop")]
     pub cop: f64,
-    /// Sensible heat ratio at rated conditions [0-1]
+    /// Gross sensible heat ratio at rated conditions [0-1]
     #[serde(default = "default_shr")]
     pub shr: f64,
     /// Rated air flow rate [m³/s]
     pub rated_airflow: f64,
+    /// Supply flow at this speed as a fraction of the unit's design flow
+    /// (E+ `UnitarySystemPerformance:Multispeed` Cooling Speed N Supply Air
+    /// Flow Ratio). Default: this speed's rated airflow over the highest
+    /// speed's.
+    #[serde(default)]
+    pub flow_fraction: Option<f64>,
+    /// This speed's curves, where they differ from the coil's.
+    #[serde(default)]
+    pub cap_ft_curve: Option<String>,
+    #[serde(default)]
+    pub cap_fflow_curve: Option<String>,
+    #[serde(default)]
+    pub eir_ft_curve: Option<String>,
+    #[serde(default)]
+    pub eir_fflow_curve: Option<String>,
+    #[serde(default)]
+    pub plf_curve: Option<String>,
 }
 
-/// Multi-speed DX cooling coil input.
+/// Multi-speed DX cooling coil input (E+ `Coil:Cooling:DX:MultiSpeed`).
+///
+/// In a packaged single-zone loop the coil runs speed by speed under the
+/// unit's load control (E+ `UnitarySystem`): it cycles the lowest speed with
+/// that speed's PLF, and between speeds runs part of the time at each, with
+/// the supply flow at each speed's `flow_fraction`.
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CoolingCoilDXMultiSpeedInput {
@@ -1528,6 +1795,41 @@ pub struct CoolingCoilDXMultiSpeedInput {
     /// Outlet temperature setpoint [°C]
     #[serde(default = "default_dx_coil_setpoint")]
     pub setpoint: f64,
+    /// Curves every speed uses unless it names its own: capacity and EIR as
+    /// functions of entering wet-bulb and outdoor dry-bulb (biquadratic) and
+    /// of the flow fraction of rated, and the part-load fraction (cycling
+    /// penalty) of the lowest speed.
+    #[serde(default)]
+    pub cap_ft_curve: Option<String>,
+    #[serde(default)]
+    pub cap_fflow_curve: Option<String>,
+    #[serde(default)]
+    pub eir_ft_curve: Option<String>,
+    #[serde(default)]
+    pub eir_fflow_curve: Option<String>,
+    #[serde(default)]
+    pub plf_curve: Option<String>,
+    /// Sensible heat ratio by the apparatus dew point / bypass factor method
+    /// each timestep (default true), as the single-speed coil.
+    #[serde(default = "default_autocalculate_shr")]
+    pub autocalculate_shr: bool,
+}
+
+impl CoolingCoilDXMultiSpeedInput {
+    /// Each speed's supply flow fraction of design: its `flow_fraction`, else
+    /// its rated airflow over the highest speed's.
+    pub fn flow_fractions(&self) -> Vec<f64> {
+        let top = self
+            .speeds
+            .last()
+            .map(|s| s.rated_airflow)
+            .filter(|&f| f > 0.0)
+            .unwrap_or(1.0);
+        self.speeds
+            .iter()
+            .map(|s| s.flow_fraction.unwrap_or(s.rated_airflow / top))
+            .collect()
+    }
 }
 
 fn default_wshp_cop_cooling() -> f64 {
@@ -1616,7 +1918,8 @@ pub struct GshpInput {
     /// COP in heating mode
     #[serde(default = "default_gshp_cop_heating")]
     pub cop_heating: f64,
-    /// Supply air temperature setpoint [°C]
+    /// Supply air temperature setpoint [°C] before the controls run; on an air
+    /// loop the controls set it each timestep (heating or cooling target).
     pub outlet_temp_setpoint: f64,
     /// Rated volumetric airflow [m³/s] or `autosize`
     pub rated_airflow: AutosizeValue,
@@ -1647,7 +1950,8 @@ pub struct HeatRecoveryInput {
     /// Submeter label for end-use reporting (default: "General")
     #[serde(default = "default_submeter")]
     pub submeter: String,
-    /// Heat recovery source: "wheel", "plate", "runaround_coil"
+    /// Heat recovery source: "wheel" (sensible and latent), "plate" or
+    /// "runaround_coil" (sensible only); anything else is a severe error
     #[serde(default = "default_hr_source")]
     pub source: String,
     /// Sensible effectiveness at design conditions [0-1]; with
@@ -1755,14 +2059,24 @@ pub struct VavBoxInput {
     pub submeter: String,
     /// Maximum primary air flow [kg/s]. Use `autosize` to let the engine calculate.
     pub max_air_flow: AutosizeValue,
-    /// Minimum flow fraction [0-1] (default 0.30)
+    /// Minimum flow fraction [0-1] (default 0.30). With
+    /// `min_flow_fraction_schedule` it is the design value sizing uses.
     #[serde(default = "default_min_flow_fraction")]
     pub min_flow_fraction: f64,
+    /// Schedule of the minimum flow fraction [0-1] during the run (E+ Zone
+    /// Minimum Air Flow Input Method Scheduled), e.g. operating rooms at full
+    /// air changes in surgery hours and a setback minimum otherwise. Sizing
+    /// keeps `min_flow_fraction`; E+ sizes on the mean of the schedule's
+    /// lowest and highest values when it has no constant fraction.
+    #[serde(default)]
+    pub min_flow_fraction_schedule: Option<String>,
     /// Reheat coil type: "none", "electric", "hot_water" (default: "none")
     #[serde(default = "default_reheat_type")]
     pub reheat_type: String,
-    /// Reheat coil capacity [W]. Use `autosize` to let the engine calculate.
-    #[serde(default)]
+    /// Reheat coil capacity [W]; `autosize` (the default, as E+
+    /// `Coil:Heating:Water` defaults to autosize) lets the engine calculate.
+    /// Ignored when `reheat_type` is `none`.
+    #[serde(default = "default_reheat_capacity")]
     pub reheat_capacity: AutosizeValue,
     /// Maximum reheat discharge air temperature [°C] (default 40.0; E+ has no
     /// default and recommends 35 °C when unknown)
@@ -1806,8 +2120,9 @@ pub struct PfpBoxInput {
     pub min_primary_fraction: f64,
     /// Secondary fan flow rate [kg/s]. Use `autosize` to let the engine calculate.
     pub secondary_fan_flow: AutosizeValue,
-    /// Electric reheat coil capacity [W]. Use `autosize` to let the engine calculate.
-    #[serde(default)]
+    /// Electric reheat coil capacity [W]; `autosize` (the default) lets the
+    /// engine calculate.
+    #[serde(default = "default_reheat_capacity")]
     pub reheat_capacity: AutosizeValue,
     /// Primary flow fraction at or below which the secondary fan runs while
     /// cooling (E+ "Fan On Flow Fraction"; default: `min_primary_fraction`)
@@ -1877,6 +2192,61 @@ pub struct PlantLoopInput {
     /// Setpoint reset strategy (optional — absent = fixed design_supply_temp)
     #[serde(default)]
     pub setpoint_reset: Option<PlantResetConfig>,
+    /// Load-range operation scheme (E+ `PlantEquipmentOperation:CoolingLoad`
+    /// / `:HeatingLoad` with the loop's Load Distribution Scheme). When given,
+    /// it decides which units run and their loads, in place of
+    /// `staging_mode` and `staging_threshold`.
+    #[serde(default)]
+    pub operation: Option<PlantOperationInput>,
+}
+
+/// Load-range operation of a plant loop's supply units.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PlantOperationInput {
+    /// How the running units share the load (default `sequential`, E+'s
+    /// default `SequentialLoad`).
+    #[serde(default)]
+    pub distribution: LoadDistribution,
+    /// Ranges of the loop load magnitude [W], each with the units that run
+    /// in it, in priority order. The first range holding the load is used;
+    /// above every range, the one with the highest upper limit.
+    pub load_ranges: Vec<LoadRangeInput>,
+}
+
+/// One load range: the units that run while the loop load magnitude is
+/// within [lower, upper] W.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LoadRangeInput {
+    /// Lower limit of the loop load magnitude [W]
+    pub lower: f64,
+    /// Upper limit of the loop load magnitude [W]
+    pub upper: f64,
+    /// Supply units (boilers, chillers, thermal storage, external plant)
+    /// that run in this range, in loading order
+    pub equipment: Vec<String>,
+}
+
+/// E+ plant Load Distribution Scheme.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LoadDistribution {
+    /// Each unit to its optimum part load in order, the rest shared equally
+    /// up to their maximum, then any remainder in order (`Optimal`).
+    Optimal,
+    /// Each unit to its maximum in order (`SequentialLoad`).
+    #[default]
+    Sequential,
+    /// An equal share each, up to its maximum, the remainder in order
+    /// (`UniformLoad`).
+    Uniform,
+    /// All running units at one part load ratio, dropping the last units
+    /// while the load is under their minimum part load (`UniformPLR`).
+    UniformPlr,
+    /// As few units as cover the load, in order, at one part load ratio
+    /// (`SequentialUniformPLR`).
+    SequentialUniformPlr,
 }
 
 impl PlantLoopInput {
@@ -1979,6 +2349,13 @@ pub struct ExternalPlantInput {
     /// Output variable names expected from the process each timestep.
     /// See [`openbse_cosim::ExternalPlantComponent`] for available names.
     pub outputs: Vec<String>,
+    /// Longest wait for one response before the run stops [s] (default 60).
+    #[serde(default = "default_cosim_timeout")]
+    pub timeout_s: f64,
+}
+
+fn default_cosim_timeout() -> f64 {
+    openbse_cosim::subprocess::DEFAULT_TIMEOUT_S
 }
 
 /// Pump type.
@@ -2035,6 +2412,24 @@ pub struct PumpInput {
     /// Default: [0, 1, 0, 0], E+'s `Pump:VariableSpeed` default.
     #[serde(default)]
     pub power_curve: Option<[f64; 4]>,
+    /// Which side of the loop the pump is on (default: `supply`). A
+    /// `demand` pump is a secondary pump: it moves the water the coils'
+    /// valves draw, and the loop's supply side is decoupled from it by a
+    /// common pipe (E+ primary/secondary loop with a demand-side pump).
+    #[serde(default)]
+    pub loop_side: PumpLoopSide,
+}
+
+/// Side of a plant loop a pump is on.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PumpLoopSide {
+    /// Supply (primary) side, with the chillers and boilers.
+    #[default]
+    Supply,
+    /// Demand (secondary) side, with the coils; the supply side runs at its
+    /// own pumps' flow and the difference passes through the common pipe.
+    Demand,
 }
 
 impl PumpInput {
@@ -2274,6 +2669,13 @@ pub struct ChillerHeatRecoveryInput {
     /// Heat recovery stops while the entering water is above this [C].
     #[serde(default)]
     pub inlet_high_limit: Option<f64>,
+    /// Run the chiller for the heat: it cools only as much as rejects the
+    /// heat the receiving loop can take (its remaining demand, the water's
+    /// rise to `leaving_setpoint`, `capacity_fraction`), and the chillers
+    /// after it meet the rest of the cooling load. Default false: it meets
+    /// its share of the cooling load and recovers what it can.
+    #[serde(default)]
+    pub heating_led: bool,
 }
 
 fn default_heat_recovery_capacity_fraction() -> f64 {
@@ -2427,7 +2829,8 @@ pub struct DesignDayInput {
     /// - `off`: No internal gains (0%). Best for heating design days.
     /// - `full`: Full design-level gains at all hours (100%). Best for cooling design days.
     /// - `scheduled`: Follow normal schedules hour-by-hour.
-    /// - `full_when_occupied`: Full gains when schedule > 0, zero when unoccupied.
+    /// - `full_when_occupied`: each gain at its design level in hours its own
+    ///   schedule is above zero, else off.
     ///
     /// If omitted, defaults based on `day_type`: heating → `off`, cooling → `full`.
     #[serde(default)]
@@ -3092,8 +3495,9 @@ impl RadiantPanelInput {
 /// Exterior equipment definition — facility-level loads not assigned to any zone.
 ///
 /// Examples: parking lot lighting, signage, exterior landscape lighting.
-/// The power draw is added to facility electricity (or gas) consumption
-/// without contributing to any zone's internal gains.
+/// The power draw is metered on its fuel under the exterior equipment end use
+/// (exterior lighting for an "exterior light" subcategory), as E+
+/// `Exterior:FuelEquipment`, without contributing to any zone's internal gains.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ExteriorEquipmentInput {
@@ -3107,9 +3511,10 @@ pub struct ExteriorEquipmentInput {
     /// Schedule name (fraction 0-1). If absent, always at full power.
     #[serde(default)]
     pub schedule: Option<String>,
-    /// Fuel type: "electricity" or "natural_gas" (default: "electricity")
-    #[serde(default = "default_exterior_fuel")]
-    pub fuel: String,
+    /// Fuel the equipment draws (E+ `Exterior:FuelEquipment` fuel use type);
+    /// sets the meter its power is booked to. `none` is not allowed.
+    #[serde(default)]
+    pub fuel: openbse_envelope::EquipmentFuel,
     /// Subcategory label for end-use reporting (legacy; use `submeter` instead)
     #[serde(default)]
     pub subcategory: Option<String>,
@@ -3117,10 +3522,6 @@ pub struct ExteriorEquipmentInput {
     /// Matches E+ Exterior:Lights AstronomicalClock control option.
     #[serde(default)]
     pub astronomical_clock: bool,
-}
-
-fn default_exterior_fuel() -> String {
-    "electricity".to_string()
 }
 
 // ─── Electrical Distribution Inputs ──────────────────────────────────────────
@@ -3161,7 +3562,9 @@ pub struct UpsInput {
     /// Efficiency at full load [0-1] (default 0.95)
     #[serde(default = "default_ups_efficiency")]
     pub efficiency_at_full_load: f64,
-    /// Optional efficiency curve name f(PLR) — if absent, uses constant efficiency_at_full_load
+    /// Optional curve of part-load ratio (IT load over the UPS rating) that
+    /// multiplies `efficiency_at_full_load`, as E+'s ITE power supply curve;
+    /// without it the efficiency is constant.
     #[serde(default)]
     pub efficiency_curve: Option<String>,
 }
@@ -3465,6 +3868,11 @@ fn build_graph_impl(
                         if let Some(coeffs) = f.vav_coefficients {
                             fan.vav_coefficients = coeffs;
                         }
+                        fan.speeds = f
+                            .speeds
+                            .iter()
+                            .map(|s| (s.flow_fraction, s.power_fraction))
+                            .collect();
                         graph.add_air_component(Box::new(fan))
                     }
                 }
@@ -3666,18 +4074,49 @@ fn build_graph_impl(
                     }
                 }
                 EquipmentInput::CoolingCoilMultiSpeed(c) => {
-                    use openbse_components::cooling_coil::{CoolingCoilDXMultiSpeed, DXSpeedStage};
+                    use openbse_components::cooling_coil::{
+                        CoolingCoilDX, CoolingCoilDXMultiSpeed,
+                    };
+                    let curve = |own: &Option<String>, coil: &Option<String>| {
+                        own.as_ref().or(coil.as_ref()).and_then(|name| {
+                            model
+                                .performance_curves
+                                .iter()
+                                .find(|pc| pc.name() == name)
+                                .cloned()
+                        })
+                    };
                     let stages = c
                         .speeds
                         .iter()
-                        .map(|s| DXSpeedStage {
-                            rated_capacity: s.rated_capacity,
-                            rated_cop: s.cop,
-                            rated_shr: s.shr,
-                            rated_airflow: s.rated_airflow,
+                        .enumerate()
+                        .map(|(i, s)| {
+                            let mut stage = CoolingCoilDX::new(
+                                &format!("{} speed {}", c.name, i + 1),
+                                s.rated_capacity,
+                                s.cop,
+                                s.shr,
+                                s.rated_airflow,
+                                c.setpoint,
+                            )
+                            .with_curves(
+                                curve(&s.cap_ft_curve, &c.cap_ft_curve),
+                                curve(&s.eir_ft_curve, &c.eir_ft_curve),
+                            )
+                            .with_fflow_curves(
+                                curve(&s.cap_fflow_curve, &c.cap_fflow_curve),
+                                curve(&s.eir_fflow_curve, &c.eir_fflow_curve),
+                            )
+                            .with_autocalculate_shr(c.autocalculate_shr);
+                            stage.dry_coil_wet_bulb_iteration = true;
+                            if let Some(plf) = curve(&s.plf_curve, &c.plf_curve) {
+                                stage = stage.with_plf_curve(plf);
+                            }
+                            stage
                         })
                         .collect();
-                    let mut coil = CoolingCoilDXMultiSpeed::new(&c.name, stages, c.setpoint);
+                    let mut coil =
+                        CoolingCoilDXMultiSpeed::from_stages(&c.name, stages, c.setpoint);
                     coil.submeter = c.submeter.clone();
                     graph.add_air_component(Box::new(coil))
                 }
@@ -3733,8 +4172,11 @@ fn build_graph_impl(
                     graph.add_air_component(Box::new(gshp))
                 }
                 EquipmentInput::HeatRecovery(hr) => {
+                    // `validate_heat_recovery` rejects any other source.
                     let erv = match hr.source.as_str() {
-                        "plate" | "plate_hx" => HeatRecovery::plate_hx(
+                        // A runaround coil loop passes heat through a
+                        // glycol loop and transfers no moisture.
+                        "plate" | "plate_hx" | "runaround_coil" => HeatRecovery::plate_hx(
                             &hr.name,
                             hr.sensible_effectiveness,
                             hr.parasitic_power,
@@ -3761,6 +4203,10 @@ fn build_graph_impl(
                     );
                     hum.submeter = h.submeter.clone();
                     hum.standby_power = h.standby_power;
+                    if let Some(cap) = h.rated_capacity {
+                        hum.rated_capacity =
+                            openbse_components::humidifier::capacity_from_volume(cap);
+                    }
                     // Served (control) zone → driver feeds back the live zone temp
                     // for the RH→w conversion (#60).
                     hum.served_zone = air_loop.zone_terminals.first().map(|zc| zc.zone.clone());
@@ -3796,7 +4242,8 @@ fn build_graph_impl(
                         e.inputs.clone(),
                         e.outputs.clone(),
                     )
-                    .with_working_dir(model_dir);
+                    .with_working_dir(model_dir)
+                    .with_timeout(e.timeout_s);
                     graph.add_air_component(Box::new(component))
                 }
             };
@@ -3828,13 +4275,19 @@ fn build_graph_impl(
                             "hot_water" | "HotWater" | "hw" => ReheatType::HotWater,
                             _ => ReheatType::None,
                         };
+                        // A box without a reheat coil has no capacity to size.
+                        let reheat_capacity = if matches!(reheat, ReheatType::None) {
+                            0.0
+                        } else {
+                            vb.reheat_capacity.to_f64()
+                        };
                         let mut box_component = VAVBox::new(
                             &vb.name,
                             &zc.zone,
                             vb.max_air_flow.to_f64(),
                             vb.min_flow_fraction,
                             reheat,
-                            vb.reheat_capacity.to_f64(),
+                            reheat_capacity,
                         );
                         box_component.submeter = vb.submeter.clone();
                         if let Some(t) = vb.max_reheat_temp {
@@ -3969,6 +4422,7 @@ fn build_graph_impl(
                                 design_flow: hr.design_flow,
                                 capacity_fraction: hr.capacity_fraction,
                                 inlet_high_limit: hr.inlet_high_limit,
+                                heating_led: hr.heating_led,
                             });
                         if let Some(condenser_loop) = ci
                             .condenser_plant_loop
@@ -4140,7 +4594,8 @@ fn build_graph_impl(
                         e.inputs.clone(),
                         e.outputs.clone(),
                     )
-                    .with_working_dir(model_dir);
+                    .with_working_dir(model_dir)
+                    .with_timeout(e.timeout_s);
                     graph.add_plant_component(Box::new(component))
                 }
             };
@@ -4225,10 +4680,21 @@ pub fn build_envelope(
     // which reads zone.input.infiltration, zone.input.internal_gains, etc.
     let zones = resolve_zone_loads(model);
 
+    let glazing_materials: std::collections::HashMap<String, openbse_envelope::GlazingMaterial> =
+        model
+            .glazing_materials
+            .iter()
+            .map(|m| (m.name.clone(), m.clone()))
+            .collect();
+    let mut window_constructions = model.window_constructions.clone();
+    for w in &mut window_constructions {
+        w.resolve_layers(&glazing_materials);
+    }
+
     let mut env = openbse_envelope::BuildingEnvelope::from_input_full(
         model.materials.clone(),
         model.constructions.clone(),
-        model.window_constructions.clone(),
+        window_constructions,
         model.simple_constructions.clone(),
         model.f_factor_constructions.clone(),
         zones,
@@ -4243,11 +4709,14 @@ pub fn build_envelope(
     // Set up schedule manager from model schedules
     env.schedule_manager = openbse_envelope::ScheduleManager::from_inputs(model.schedules.clone());
 
+    env.set_daylighting(&model.daylighting_controls);
+
     // Set shading calculation mode from simulation settings
     env.shading_calculation = model.simulation.shading_calculation;
 
     // Set site terrain for wind profile calculations
     env.terrain = model.simulation.terrain;
+    env.outside_convection = model.simulation.outside_convection_algorithm;
     log::info!(
         "Site terrain: {:?} (wind exp={:.2}, BL height={:.0}m)",
         env.terrain,
@@ -4284,6 +4753,60 @@ pub fn build_envelope(
     Some(env)
 }
 
+/// Each zone's floor area [m²]: the stated `floor_area`, or else the area of
+/// its floor surfaces' vertices (the rule `BuildingEnvelope` applies), or 0.
+fn zone_floor_areas(model: &ModelInput) -> std::collections::HashMap<String, f64> {
+    model
+        .zones
+        .iter()
+        .map(|zone| {
+            if zone.floor_area > 0.0 {
+                return (zone.name.clone(), zone.floor_area);
+            }
+            let floors: Vec<&[openbse_envelope::Point3D]> = model
+                .surfaces
+                .iter()
+                .filter(|s| s.zone == zone.name)
+                .filter(|s| s.surface_type == openbse_envelope::SurfaceType::Floor)
+                .filter_map(|s| s.vertices.as_deref())
+                .collect();
+            let area = if floors.is_empty() {
+                0.0
+            } else {
+                openbse_envelope::geometry::zone_floor_area(&floors).max(0.0)
+            };
+            (zone.name.clone(), area)
+        })
+        .collect()
+}
+
+/// A zone's design number of people: the count of every people gain already
+/// resolved into it (E+ `TotOccupants`).
+fn zone_design_occupants(zone: &openbse_envelope::ZoneInput) -> f64 {
+    zone.internal_gains
+        .iter()
+        .map(|g| match g {
+            openbse_envelope::InternalGainInput::People { count, .. } => *count,
+            _ => 0.0,
+        })
+        .sum()
+}
+
+/// An equipment object's design level in one zone [W]: per floor area, per
+/// person, or the stated power (E+ `setDesignLevel`).
+fn equipment_design_level(
+    equip: &openbse_envelope::EquipmentGainInput,
+    zone: &openbse_envelope::ZoneInput,
+) -> f64 {
+    if let Some(wpa) = equip.watts_per_area {
+        wpa * zone.floor_area
+    } else if let Some(wpp) = equip.watts_per_person {
+        wpp * zone_design_occupants(zone)
+    } else {
+        equip.power
+    }
+}
+
 /// Resolve top-level zone load objects into per-zone `ZoneInput` fields.
 ///
 /// For each top-level object (people, lights, equipment, infiltration,
@@ -4299,20 +4822,11 @@ fn resolve_zone_loads(model: &ModelInput) -> Vec<openbse_envelope::ZoneInput> {
 
     let mut zones = model.zones.clone();
 
-    // Per-area loads (watts_per_area, people_per_area, ...) multiply the zone
-    // floor area, so a floor area left to auto-calculate must be known here,
-    // not only later when the envelope is built. Same rule as the envelope:
-    // the sum of the zone's floor-surface polygons.
-    for zone in zones.iter_mut().filter(|z| z.floor_area <= 0.0) {
-        let floors: Vec<&[openbse_envelope::Point3D]> = model
-            .surfaces
-            .iter()
-            .filter(|s| {
-                s.zone == zone.name && s.surface_type == openbse_envelope::SurfaceType::Floor
-            })
-            .filter_map(|s| s.vertices.as_deref())
-            .collect();
-        zone.floor_area = openbse_envelope::geometry::zone_floor_area(&floors);
+    // Per-area loads resolve against each zone's floor area, which a zone
+    // that states none takes from its floor surfaces.
+    let floor_areas = zone_floor_areas(model);
+    for zone in &mut zones {
+        zone.floor_area = floor_areas.get(&zone.name).copied().unwrap_or(0.0);
     }
 
     // Build zone name → zone group names mapping for expansion
@@ -4389,24 +4903,39 @@ fn resolve_zone_loads(model: &ModelInput) -> Vec<openbse_envelope::ZoneInput> {
         }
     }
 
-    // Resolve top-level equipment → internal_gains (Equipment variant)
+    // Resolve top-level equipment → internal_gains (Equipment variant). People
+    // are resolved first, so a per-person level sees the zone's occupants.
     for equip in &model.equipment {
         let target_zones = expand_zones(&equip.zones);
         for zone_name in &target_zones {
             if let Some(zone) = zones.iter_mut().find(|z| z.name == *zone_name) {
-                let power = if let Some(wpf) = equip.watts_per_area {
-                    wpf * zone.floor_area
-                } else {
-                    equip.power
-                };
                 zone.internal_gains.push(InternalGainInput::Equipment {
-                    power,
+                    power: equipment_design_level(equip, zone),
                     radiant_fraction: equip.radiant_fraction,
                     lost_fraction: equip.lost_fraction,
                     latent_fraction: equip.latent_fraction,
                     schedule: equip.schedule.clone(),
                     submeter: equip.submeter.clone(),
+                    fuel: equip.fuel,
                 });
+            }
+        }
+    }
+
+    // Resolve top-level outdoor-controlled baseboards → internal_gains
+    for bb in &model.outdoor_controlled_baseboards {
+        for zone_name in &expand_zones(&bb.zones) {
+            if let Some(zone) = zones.iter_mut().find(|z| z.name == *zone_name) {
+                zone.internal_gains
+                    .push(InternalGainInput::OutdoorControlledBaseboard {
+                        capacity_at_low_temperature: bb.capacity_at_low_temperature,
+                        low_temperature: bb.low_temperature,
+                        capacity_at_high_temperature: bb.capacity_at_high_temperature,
+                        high_temperature: bb.high_temperature,
+                        radiant_fraction: bb.radiant_fraction,
+                        schedule: bb.schedule.clone(),
+                        submeter: bb.submeter.clone(),
+                    });
             }
         }
     }
@@ -4417,23 +4946,19 @@ fn resolve_zone_loads(model: &ModelInput) -> Vec<openbse_envelope::ZoneInput> {
         let target_zones = expand_zones(&equip.zones);
         for zone_name in &target_zones {
             if let Some(zone) = zones.iter_mut().find(|z| z.name == *zone_name) {
-                let power = if let Some(wpf) = equip.watts_per_area {
-                    wpf * zone.floor_area
-                } else {
-                    equip.power
-                };
                 let submeter = if equip.submeter == "General" {
                     "datacenter".to_string()
                 } else {
                     equip.submeter.clone()
                 };
                 zone.internal_gains.push(InternalGainInput::Equipment {
-                    power,
+                    power: equipment_design_level(equip, zone),
                     radiant_fraction: equip.radiant_fraction,
                     lost_fraction: equip.lost_fraction,
                     latent_fraction: equip.latent_fraction,
                     schedule: equip.schedule.clone(),
                     submeter,
+                    fuel: equip.fuel,
                 });
             }
         }
@@ -4451,6 +4976,7 @@ fn resolve_zone_loads(model: &ModelInput) -> Vec<openbse_envelope::ZoneInput> {
                     latent_fraction: 0.0,  // servers produce sensible heat only
                     schedule: dc.it_load_schedule.clone(),
                     submeter: "datacenter".to_string(),
+                    fuel: openbse_envelope::EquipmentFuel::Electricity,
                 });
             }
 
@@ -4538,16 +5064,7 @@ fn resolve_zone_loads(model: &ModelInput) -> Vec<openbse_envelope::ZoneInput> {
 
                 // Compute per_person and per_area flow components
                 let pp_flow = if let Some(pp) = vent.per_person {
-                    // Count people already resolved for this zone
-                    let people_count: f64 = zone
-                        .internal_gains
-                        .iter()
-                        .map(|g| match g {
-                            InternalGainInput::People { count, .. } => *count,
-                            _ => 0.0,
-                        })
-                        .sum();
-                    pp * people_count
+                    pp * zone_design_occupants(zone)
                 } else {
                     0.0
                 };
@@ -4644,83 +5161,20 @@ fn resolve_zone_loads(model: &ModelInput) -> Vec<openbse_envelope::ZoneInput> {
     // real-HVAC cases such as ASHRAE 140 Section 10 HE220/HE230).
     let resolved_tstats = resolve_thermostats(model);
     for tstat in &resolved_tstats {
-        if tstat.thermostat_schedule.is_empty() {
-            continue;
-        }
         for zone_name in expand_zones(&tstat.zones) {
             if let Some(zone) = zones.iter_mut().find(|z| z.name == zone_name) {
-                zone.thermostat_schedule = tstat.thermostat_schedule.clone();
+                if !tstat.thermostat_schedule.is_empty() {
+                    zone.thermostat_schedule = tstat.thermostat_schedule.clone();
+                }
+                zone.setpoint_schedules = (
+                    tstat.heating_setpoint_schedule.clone(),
+                    tstat.cooling_setpoint_schedule.clone(),
+                );
             }
         }
     }
 
     zones
-}
-
-/// Compute minimum outdoor air fraction for an air loop from zone ventilation requirements.
-///
-///   total_oa = Σ ZoneInput::design_outdoor_air_flow
-///   min_oa_fraction = total_oa / design_supply_flow
-///
-/// Both flows are for one instance of a multiplied zone, so no multiplier enters.
-///
-/// Returns the computed fraction clamped to [0, 1], or `default_fraction` if
-/// no outdoor air data is available for the served zones.
-pub fn compute_oa_fraction(
-    model: &ModelInput,
-    air_loop: &AirLoopInput,
-    resolved_zones: &[openbse_envelope::ZoneInput],
-    default_fraction: f64,
-) -> f64 {
-    let served_zone_names: Vec<String> = air_loop
-        .zone_terminals
-        .iter()
-        .map(|zc| zc.zone.clone())
-        .collect();
-
-    if served_zone_names.is_empty() {
-        return default_fraction;
-    }
-
-    // Total outdoor air requirement [m³/s], preferring the resolved zone data
-    let zone_flows: Vec<f64> = served_zone_names
-        .iter()
-        .filter_map(|name| {
-            resolved_zones
-                .iter()
-                .chain(model.zones.iter())
-                .find(|z| z.name == *name)
-        })
-        .filter_map(|z| z.design_outdoor_air_flow())
-        .collect();
-    let has_oa_data = !zone_flows.is_empty();
-    let total_oa_flow: f64 = zone_flows.iter().sum();
-
-    if !has_oa_data || total_oa_flow <= 0.0 {
-        return default_fraction;
-    }
-
-    // Find design supply flow from the fan in this air loop
-    let design_flow = air_loop.equipment.iter().find_map(|eq| match eq {
-        EquipmentInput::Fan(f) => {
-            let flow = f.design_flow_rate.to_f64();
-            if flow > 0.0 {
-                Some(flow)
-            } else {
-                None
-            }
-        }
-        _ => None,
-    });
-
-    match design_flow {
-        Some(flow) => {
-            // OA flow is in m³/s and fan design flow is also in m³/s,
-            // so the ratio is dimensionally consistent.
-            (total_oa_flow / flow).clamp(0.0, 1.0)
-        }
-        _ => default_fraction,
-    }
 }
 
 /// Resolve thermostat definitions, expanding zone group references to
@@ -4906,6 +5360,41 @@ impl ValidationResult {
     }
 }
 
+/// Heat-recovery sources: a wheel moves heat and moisture; a plate exchanger
+/// and a runaround coil loop move heat only, so a latent effectiveness on
+/// them would be ignored.
+fn validate_heat_recovery(model: &ModelInput, result: &mut ValidationResult) {
+    let units = model
+        .air_loops
+        .iter()
+        .flat_map(|al| al.equipment.iter().map(move |eq| (al, eq)));
+    for (al, eq) in units {
+        let EquipmentInput::HeatRecovery(hr) = eq else {
+            continue;
+        };
+        let sensible_only = match hr.source.as_str() {
+            "wheel" => false,
+            "plate" | "plate_hx" | "runaround_coil" => true,
+            other => {
+                result.severe(format!(
+                    "Heat recovery '{}' in air loop '{}': unknown source '{other}' \
+                     (use wheel, plate or runaround_coil)",
+                    hr.name, al.name
+                ));
+                continue;
+            }
+        };
+        if sensible_only && hr.latent_effectiveness > 0.0 {
+            result.severe(format!(
+                "Heat recovery '{}' in air loop '{}': a {} transfers no moisture, \
+                 so latent_effectiveness {} would be ignored; remove it or use \
+                 source: wheel",
+                hr.name, al.name, hr.source, hr.latent_effectiveness
+            ));
+        }
+    }
+}
+
 /// A dual-duct loop splits into its two decks after the components that
 /// carry the whole flow: heating coils run on the hot deck and cooling coils
 /// on the cold deck, so nothing else may follow a coil. Its boxes control
@@ -4995,6 +5484,193 @@ fn validate_recirculating_loops(model: &ModelInput, result: &mut ValidationResul
     }
 }
 
+/// Supply-temperature limits that the controls clamp between, or divide by the
+/// span of, must be ordered: a minimum above its maximum would panic in
+/// `f64::clamp`, and equal reset outdoor temperatures would divide by zero.
+fn validate_supply_temp_limits(model: &ModelInput, result: &mut ValidationResult) {
+    for al in &model.air_loops {
+        let resets = [
+            ("cooling_sat_reset", al.controls.cooling_sat_reset.as_ref()),
+            ("heating_sat_reset", al.controls.heating_sat_reset.as_ref()),
+        ];
+        for (field, reset) in resets {
+            let Some(reset) = reset else { continue };
+            let (sat_min, sat_max) = match *reset {
+                SatResetConfig::OaReset {
+                    sat_min,
+                    sat_max,
+                    oa_low,
+                    oa_high,
+                } => {
+                    if oa_low >= oa_high {
+                        result.severe(format!(
+                            "Air loop '{}': {field} oa_low ({oa_low}) must be below oa_high \
+                             ({oa_high})",
+                            al.name
+                        ));
+                    }
+                    (sat_min, sat_max)
+                }
+                SatResetConfig::DemandReset {
+                    sat_min, sat_max, ..
+                }
+                | SatResetConfig::SingleZone { sat_min, sat_max } => (sat_min, sat_max),
+            };
+            if sat_min > sat_max {
+                result.severe(format!(
+                    "Air loop '{}': {field} sat_min ({sat_min}) is above sat_max ({sat_max})",
+                    al.name
+                ));
+            }
+        }
+        if let Some(r) = al.controls.economizer.as_ref().and_then(|e| e.load_reset) {
+            if r.min_supply_temp > r.max_supply_temp {
+                result.severe(format!(
+                    "Air loop '{}': economizer load_reset min_supply_temp ({}) is above \
+                     max_supply_temp ({})",
+                    al.name, r.min_supply_temp, r.max_supply_temp
+                ));
+            }
+        }
+    }
+}
+
+/// Every named curve reference must name a curve in `performance_curves`:
+/// a misspelt name would otherwise leave the component on its default curve
+/// or constant efficiency.
+fn validate_curve_names(model: &ModelInput, result: &mut ValidationResult) {
+    let mut check = |owner: &str, name: &str, field: &str, curve: &Option<String>| {
+        if let Some(c) = curve {
+            if !model.performance_curves.iter().any(|pc| pc.name() == c) {
+                result.severe(format!(
+                    "{owner} '{name}': {field} '{c}' not found in performance_curves"
+                ));
+            }
+        }
+    };
+    for al in &model.air_loops {
+        for eq in &al.equipment {
+            match eq {
+                EquipmentInput::HeatingCoil(c) => {
+                    check("Heating coil", &c.name, "cap_ft_curve", &c.cap_ft_curve);
+                    check("Heating coil", &c.name, "eir_ft_curve", &c.eir_ft_curve);
+                }
+                EquipmentInput::CoolingCoil(c) => {
+                    check("Cooling coil", &c.name, "cap_ft_curve", &c.cap_ft_curve);
+                    check("Cooling coil", &c.name, "eir_ft_curve", &c.eir_ft_curve);
+                    check("Cooling coil", &c.name, "plf_curve", &c.plf_curve);
+                    check(
+                        "Cooling coil",
+                        &c.name,
+                        "cap_fflow_curve",
+                        &c.cap_fflow_curve,
+                    );
+                    check(
+                        "Cooling coil",
+                        &c.name,
+                        "eir_fflow_curve",
+                        &c.eir_fflow_curve,
+                    );
+                }
+                EquipmentInput::CoolingCoilMultiSpeed(c) => {
+                    let mut sets = vec![[
+                        &c.cap_ft_curve,
+                        &c.cap_fflow_curve,
+                        &c.eir_ft_curve,
+                        &c.eir_fflow_curve,
+                        &c.plf_curve,
+                    ]];
+                    sets.extend(c.speeds.iter().map(|s| {
+                        [
+                            &s.cap_ft_curve,
+                            &s.cap_fflow_curve,
+                            &s.eir_ft_curve,
+                            &s.eir_fflow_curve,
+                            &s.plf_curve,
+                        ]
+                    }));
+                    let fields = [
+                        "cap_ft_curve",
+                        "cap_fflow_curve",
+                        "eir_ft_curve",
+                        "eir_fflow_curve",
+                        "plf_curve",
+                    ];
+                    for set in sets {
+                        for (field, curve) in fields.iter().zip(set) {
+                            check("Cooling coil", &c.name, field, curve);
+                        }
+                    }
+                }
+                EquipmentInput::Gshp(g) => {
+                    check("GSHP", &g.name, "cooling_cap_ft", &g.cooling_cap_ft);
+                    check("GSHP", &g.name, "cooling_eir_ft", &g.cooling_eir_ft);
+                    check("GSHP", &g.name, "heating_cap_ft", &g.heating_cap_ft);
+                    check("GSHP", &g.name, "heating_eir_ft", &g.heating_eir_ft);
+                }
+                _ => {}
+            }
+        }
+    }
+    for pl in &model.plant_loops {
+        for eq in &pl.supply_equipment {
+            match eq {
+                PlantEquipmentInput::Boiler(b) => {
+                    check("Boiler", &b.name, "efficiency_curve", &b.efficiency_curve);
+                }
+                PlantEquipmentInput::Chiller(c) => {
+                    check("Chiller", &c.name, "capft_curve", &c.capft_curve);
+                    check("Chiller", &c.name, "eirft_curve", &c.eirft_curve);
+                    check("Chiller", &c.name, "eirfplr_curve", &c.eirfplr_curve);
+                }
+                _ => {}
+            }
+        }
+    }
+    for vrf in &model.vrf_systems {
+        let ou = &vrf.outdoor_unit;
+        for (field, curve) in [
+            ("cooling_cap_ft", &ou.cooling_cap_ft),
+            ("cooling_eir_ft", &ou.cooling_eir_ft),
+            ("cooling_eir_fplr", &ou.cooling_eir_fplr),
+            ("heating_cap_ft", &ou.heating_cap_ft),
+            ("heating_eir_ft", &ou.heating_eir_ft),
+            ("heating_eir_fplr", &ou.heating_eir_fplr),
+            ("cooling_plf_fplr", &ou.cooling_plf_fplr),
+            ("heating_plf_fplr", &ou.heating_plf_fplr),
+        ] {
+            check("VRF outdoor unit", &ou.name, field, curve);
+        }
+    }
+    for dhw in &model.dhw_systems {
+        let wh = &dhw.water_heater;
+        check(
+            "Water heater",
+            &wh.name,
+            "capacity_curve",
+            &wh.capacity_curve,
+        );
+        check("Water heater", &wh.name, "cop_curve", &wh.cop_curve);
+    }
+}
+
+/// A UPS efficiency curve must name a curve in `performance_curves`.
+fn validate_ups_curves(model: &ModelInput, result: &mut ValidationResult) {
+    let Some(dist) = model.electrical_distribution.as_ref() else {
+        return;
+    };
+    for ups in &dist.ups {
+        if let Some(name) = &ups.efficiency_curve {
+            if !model.performance_curves.iter().any(|c| c.name() == name) {
+                result.severe(format!(
+                    "UPS '{}': efficiency_curve '{name}' not found in performance_curves",
+                    ups.name
+                ));
+            }
+        }
+    }
+}
+
 /// A water panel without a stated `ua` is rated at its loop's design supply
 /// temperature against E+'s rating air temperatures (18 °C for heating, 24 °C
 /// for cooling); a loop on the wrong side of that delivers nothing.
@@ -5036,6 +5712,65 @@ fn validate_radiant_panel_rating(model: &ModelInput, result: &mut ValidationResu
 /// One air loop must serve zones of one multiplier. The run simulates one
 /// instance of a multiplied zone with one instance of its loop, then multiplies
 /// the energy, which can't represent a loop shared unevenly.
+/// Daylighting controls: an existing zone, one control per zone, reference
+/// points sharing at most the whole zone, and fractions in E+'s ranges.
+fn validate_daylighting(model: &ModelInput, result: &mut ValidationResult) {
+    let mut seen = std::collections::HashSet::new();
+    for c in &model.daylighting_controls {
+        let ctx = format!("Daylighting control '{}'", c.name);
+        if !model.zones.iter().any(|z| z.name == c.zone) {
+            result.severe(format!("{ctx}: zone '{}' does not exist", c.zone));
+        }
+        if !seen.insert(c.zone.as_str()) {
+            result.severe(format!(
+                "{ctx}: zone '{}' already has daylighting controls; give each zone one control \
+                 with all its reference points",
+                c.zone
+            ));
+        }
+        if c.reference_points.is_empty() {
+            result.severe(format!("{ctx}: it needs at least one reference point"));
+        }
+        let share: f64 = c.reference_points.iter().map(|p| p.fraction_of_zone).sum();
+        if share > 1.0 + 1e-6 {
+            result.severe(format!(
+                "{ctx}: the reference points' fraction_of_zone add up to {share:.3}, more than 1"
+            ));
+        }
+        for p in &c.reference_points {
+            if !(p.fraction_of_zone > 0.0 && p.fraction_of_zone <= 1.0) {
+                result.severe(format!(
+                    "{ctx}: fraction_of_zone {} is outside (0, 1]",
+                    p.fraction_of_zone
+                ));
+            }
+            if p.illuminance_setpoint <= 0.0 {
+                result.severe(format!(
+                    "{ctx}: illuminance_setpoint {} lux must be above zero",
+                    p.illuminance_setpoint
+                ));
+            }
+        }
+        for (field, v) in [
+            (
+                "minimum_input_power_fraction",
+                c.minimum_input_power_fraction,
+            ),
+            (
+                "minimum_light_output_fraction",
+                c.minimum_light_output_fraction,
+            ),
+        ] {
+            if !(0.0..=0.6).contains(&v) {
+                result.severe(format!("{ctx}: {field} {v} is outside [0, 0.6]"));
+            }
+        }
+        if c.stepped_control_steps == 0 {
+            result.severe(format!("{ctx}: stepped_control_steps must be at least 1"));
+        }
+    }
+}
+
 fn validate_zone_multipliers(model: &ModelInput, result: &mut ValidationResult) {
     let multiplier = |name: &str| {
         model
@@ -5113,6 +5848,7 @@ fn collect_schedule_refs(value: &serde_yaml::Value, path: &str, out: &mut Vec<(S
 /// parse, and warn about values the [0, 1] clamp in `ScheduleInput::fraction`
 /// would change. Schedules here are fractional multipliers by design (#66), so
 /// out-of-range values aren't an error, but the clamp shouldn't be silent.
+/// Thermostat setpoint schedules hold temperatures and are read unclamped.
 fn validate_schedules(
     model: &ModelInput,
     schedule_names: &std::collections::HashSet<&str>,
@@ -5136,10 +5872,27 @@ fn validate_schedules(
         Err(e) => result.severe(format!("Could not check schedule references: {e}")),
     }
 
+    // Thermostat setpoint schedules hold temperatures, read unclamped.
+    let mut setpoint_schedules = std::collections::HashSet::new();
+    for t in &model.thermostats {
+        let named = [&t.heating_setpoint_schedule, &t.cooling_setpoint_schedule];
+        if named.iter().any(|n| n.is_some()) && !t.thermostat_schedule.is_empty() {
+            result.severe(format!(
+                "Thermostat '{}': give either thermostat_schedule or setpoint schedules \
+                 (heating_setpoint_schedule, cooling_setpoint_schedule), not both",
+                t.name
+            ));
+        }
+        setpoint_schedules.extend(named.into_iter().flatten().map(String::as_str));
+    }
+
     for input in &model.schedules {
         let mut schedule = input.clone();
         if let Err(e) = schedule.resolve_compact() {
             result.severe(e);
+            continue;
+        }
+        if setpoint_schedules.contains(schedule.name.as_str()) {
             continue;
         }
         let (min, max) = schedule
@@ -5232,16 +5985,115 @@ fn validate_materials(model: &ModelInput, result: &mut ValidationResult) {
     }
 }
 
-/// The window models have one or two panes (#214). `num_panes: 3` used to be
-/// accepted and modelled as two, with one gap.
-fn validate_window_panes(model: &ModelInput, result: &mut ValidationResult) {
+/// Window constructions are simple glazing (U-factor and SHGC) or layered
+/// glazing (`layers`), never both (#214). Layers alternate glass and gas
+/// from outside to inside, with one to four glass layers, and name glazing
+/// materials that exist. The retired pane fields are errors that point to
+/// `layers`.
+fn validate_window_constructions(model: &ModelInput, result: &mut ValidationResult) {
+    let mut names = std::collections::HashSet::new();
+    for m in &model.glazing_materials {
+        if !names.insert(m.name.as_str()) {
+            result.severe(format!("Glazing material '{}' is defined twice", m.name));
+        }
+        for p in m.problems() {
+            result.severe(format!("Glazing material '{}': {p}", m.name));
+        }
+    }
     for w in &model.window_constructions {
-        if let Some(n) = w.num_panes.filter(|n| !(1..=2).contains(n)) {
+        let name = &w.name;
+        if w.has_retired_pane_fields() {
             result.severe(format!(
-                "Window construction '{}': num_panes {n} isn't supported. Pane data models one \
-                 or two panes; give a triple-glazed unit as U-factor and SHGC, without pane data",
-                w.name
+                "Window construction '{name}': the pane fields (pane_solar_transmittance, \
+                 pane_solar_reflectance, num_panes, gap_width, pane_conductivity, \
+                 pane_thickness, glass_emissivity) are replaced by `layers`: define each pane \
+                 as a glazing material and list the panes and gas gaps from outside to inside"
             ));
+            continue;
+        }
+        if w.layers.is_empty() {
+            match (w.u_factor, w.shgc) {
+                (Some(u), Some(shgc)) => {
+                    if !(u > 0.0 && u <= 7.0) {
+                        result.severe(format!(
+                            "Window construction '{name}': u_factor {u} must lie in (0, 7] W/(m²·K)"
+                        ));
+                    }
+                    if !(0.0..1.0).contains(&shgc) {
+                        result.severe(format!(
+                            "Window construction '{name}': shgc {shgc} must lie in [0, 1)"
+                        ));
+                    }
+                    if let Some(vt) = w.visible_transmittance.filter(|v| !(0.0..=1.0).contains(v)) {
+                        result.severe(format!(
+                            "Window construction '{name}': visible_transmittance {vt} must lie \
+                             in [0, 1]"
+                        ));
+                    }
+                }
+                _ => result.severe(format!(
+                    "Window construction '{name}' needs u_factor and shgc, or layers"
+                )),
+            }
+            continue;
+        }
+        if w.u_factor.is_some() || w.shgc.is_some() || w.visible_transmittance.is_some() {
+            result.severe(format!(
+                "Window construction '{name}' has layers and u_factor, shgc or \
+                 visible_transmittance: a layered window's ratings follow from its layers, so \
+                 give one or the other"
+            ));
+        }
+        let n = w.layers.len();
+        if n % 2 == 0 {
+            result.severe(format!(
+                "Window construction '{name}': layers must alternate glass and gas, starting \
+                 and ending with glass"
+            ));
+        }
+        if n.div_ceil(2) > openbse_envelope::glazing::MAX_LAYERS {
+            result.severe(format!(
+                "Window construction '{name}' has {} glass layers; at most {} are supported",
+                n.div_ceil(2),
+                openbse_envelope::glazing::MAX_LAYERS
+            ));
+        }
+        for (i, l) in w.layers.iter().enumerate() {
+            let at = format!("Window construction '{name}' layer {}", i + 1);
+            if i % 2 == 0 {
+                match &l.glazing {
+                    Some(g) if l.gas.is_none() && l.gas_mixture.is_none() && l.width.is_none() => {
+                        if !names.contains(g.as_str()) {
+                            result.severe(format!(
+                                "{at}: glazing material '{g}' not found in glazing_materials"
+                            ));
+                        }
+                    }
+                    _ => result.severe(format!(
+                        "{at} must be a glass layer (`glazing` with a glazing material name only)"
+                    )),
+                }
+                continue;
+            }
+            if l.glazing.is_some() || l.gas.is_some() == l.gas_mixture.is_some() {
+                result.severe(format!(
+                    "{at} must be a gas gap: `gas` or `gas_mixture`, with `width`"
+                ));
+                continue;
+            }
+            if !l.width.is_some_and(|w| w > 0.0) {
+                result.severe(format!("{at}: gas gap width must be positive"));
+            }
+            if let Some(mix) = &l.gas_mixture {
+                let total: f64 = mix.iter().map(|f| f.fraction).sum();
+                if mix.is_empty() || mix.iter().any(|f| f.fraction <= 0.0) {
+                    result.severe(format!("{at}: gas_mixture fractions must be positive"));
+                } else if (total - 1.0).abs() > 1.0e-3 {
+                    result.severe(format!(
+                        "{at}: gas_mixture fractions add up to {total:.4}, not 1"
+                    ));
+                }
+            }
         }
     }
 }
@@ -5264,6 +6116,71 @@ fn validate_duct_ambients(model: &ModelInput, result: &mut ValidationResult) {
     }
 }
 
+/// Co-simulation variable names must be ones the engine knows, and the
+/// required outputs must be declared: an unknown input would be sent as
+/// nothing useful and an unknown output would be ignored.
+fn validate_cosim(model: &ModelInput, result: &mut ValidationResult) {
+    use openbse_cosim::external_air::{AIR_INPUTS, AIR_OUTPUTS, AIR_REQUIRED_OUTPUTS};
+    use openbse_cosim::external_plant::{PLANT_INPUTS, PLANT_OUTPUTS, PLANT_REQUIRED_OUTPUTS};
+    use openbse_cosim::subprocess::unknown_names;
+    let mut check = |kind: &str,
+                     name: &str,
+                     io: (&[String], &[String]),
+                     known: (&[&str], &[&str]),
+                     required: &[&str],
+                     timeout_s: f64| {
+        let (inputs, outputs) = io;
+        for v in unknown_names(inputs, known.0) {
+            result.severe(format!(
+                "{kind} '{name}': unknown input '{v}' (known: {})",
+                known.0.join(", ")
+            ));
+        }
+        for v in unknown_names(outputs, known.1) {
+            result.severe(format!(
+                "{kind} '{name}': unknown output '{v}' (known: {})",
+                known.1.join(", ")
+            ));
+        }
+        for r in required.iter().filter(|r| !outputs.iter().any(|o| o == *r)) {
+            result.severe(format!("{kind} '{name}': outputs must include '{r}'"));
+        }
+        if !(timeout_s > 0.0 && timeout_s.is_finite()) {
+            result.severe(format!(
+                "{kind} '{name}': timeout_s must be positive, got {timeout_s}"
+            ));
+        }
+    };
+    for al in &model.air_loops {
+        for eq in &al.equipment {
+            if let EquipmentInput::ExternalAir(e) = eq {
+                check(
+                    "external_air",
+                    &e.name,
+                    (&e.inputs, &e.outputs),
+                    (AIR_INPUTS, AIR_OUTPUTS),
+                    AIR_REQUIRED_OUTPUTS,
+                    e.timeout_s,
+                );
+            }
+        }
+    }
+    for pl in &model.plant_loops {
+        for eq in &pl.supply_equipment {
+            if let PlantEquipmentInput::ExternalPlant(e) = eq {
+                check(
+                    "external_plant",
+                    &e.name,
+                    (&e.inputs, &e.outputs),
+                    (PLANT_INPUTS, PLANT_OUTPUTS),
+                    PLANT_REQUIRED_OUTPUTS,
+                    e.timeout_s,
+                );
+            }
+        }
+    }
+}
+
 /// A scheduled ventilation entry takes one flow, not two (#219). The ACH used to
 /// be silently dropped when both were given.
 fn validate_scheduled_ventilation(model: &ModelInput, result: &mut ValidationResult) {
@@ -5277,6 +6194,108 @@ fn validate_scheduled_ventilation(model: &ModelInput, result: &mut ValidationRes
                 "Zone '{}': a ventilation entry sets both flow_rate and ach_rate ({} to {} h); \
                  give one",
                 z.name, v.start_hour, v.end_hour
+            ));
+        }
+    }
+}
+
+/// Equipment and baseboard inputs E+ rejects (`GetInternalHeatGainsInput`,
+/// `setDesignLevel`), plus one way to give the design level, and per-person
+/// equipment on a zone with people (E+ only warns and uses 0 W; OpenBSE stops,
+/// as it does for a per-area load on a zone without floor area).
+fn validate_equipment_levels(model: &ModelInput, result: &mut ValidationResult) {
+    use openbse_envelope::EquipmentFuel;
+    let occupants: std::collections::HashMap<String, f64> = resolve_zone_loads(model)
+        .iter()
+        .map(|z| (z.name.clone(), zone_design_occupants(z)))
+        .collect();
+    let groups: std::collections::HashMap<&str, &[String]> = model
+        .zone_groups
+        .iter()
+        .map(|g| (g.name.as_str(), g.zones.as_slice()))
+        .collect();
+    let members = |r: &String| -> Vec<String> {
+        groups
+            .get(r.as_str())
+            .map_or_else(|| vec![r.clone()], |g| g.to_vec())
+    };
+    let equipment = model.equipment.iter().map(|e| ("Equipment", e));
+    let it = model.equipment_it.iter().map(|e| ("IT equipment", e));
+    for (kind, e) in equipment.chain(it) {
+        let name = &e.name;
+        let ways = [
+            e.power != 0.0,
+            e.watts_per_area.is_some(),
+            e.watts_per_person.is_some(),
+        ];
+        if ways.iter().filter(|w| **w).count() > 1 {
+            result.severe(format!(
+                "{kind} '{name}': give one of power, watts_per_area and watts_per_person"
+            ));
+        }
+        if e.fuel != EquipmentFuel::None && e.power < 0.0 {
+            result.severe(format!(
+                "{kind} '{name}': power {} W is negative; only fuel: none (unmetered) \
+                 equipment may remove heat",
+                e.power
+            ));
+        }
+        if e.watts_per_area.is_some_and(|w| w < 0.0) {
+            result.severe(format!("{kind} '{name}': watts_per_area is negative"));
+        }
+        if let Some(wpp) = e.watts_per_person {
+            if wpp <= 0.0 {
+                result.severe(format!(
+                    "{kind} '{name}': watts_per_person must be positive"
+                ));
+            }
+            for z in e.zones.iter().flat_map(members) {
+                if occupants.get(&z).is_some_and(|n| *n <= 0.0) {
+                    result.severe(format!(
+                        "{kind} '{name}' is given per person, but zone '{z}' has no people"
+                    ));
+                }
+            }
+        }
+        if kind == "IT equipment" && e.fuel != EquipmentFuel::Electricity {
+            result.severe(format!(
+                "IT equipment '{name}': fuel is {}; IT equipment is electric",
+                e.fuel.key()
+            ));
+        }
+    }
+    for x in &model.exterior_equipment {
+        if x.fuel == EquipmentFuel::None {
+            result.severe(format!(
+                "Exterior equipment '{}': fuel none meters nothing; give the fuel it draws",
+                x.name
+            ));
+        }
+        if x.power < 0.0 {
+            result.severe(format!(
+                "Exterior equipment '{}': power {} W is negative",
+                x.name, x.power
+            ));
+        }
+    }
+    for b in &model.outdoor_controlled_baseboards {
+        let name = &b.name;
+        if b.capacity_at_low_temperature <= 0.0 || b.capacity_at_high_temperature < 0.0 {
+            result.severe(format!(
+                "Outdoor-controlled baseboard '{name}': capacity_at_low_temperature must be \
+                 positive and capacity_at_high_temperature not negative"
+            ));
+        }
+        if b.high_temperature <= b.low_temperature {
+            result.severe(format!(
+                "Outdoor-controlled baseboard '{name}': high_temperature ({} °C) must be above \
+                 low_temperature ({} °C)",
+                b.high_temperature, b.low_temperature
+            ));
+        }
+        if !(0.0..=1.0).contains(&b.radiant_fraction) {
+            result.severe(format!(
+                "Outdoor-controlled baseboard '{name}': radiant_fraction must be within [0, 1]"
             ));
         }
     }
@@ -5313,6 +6332,58 @@ fn warn_shading_geometry_ignored(model: &ModelInput, result: &mut ValidationResu
 /// Interzone surfaces must pair one-to-one (#207). Also warns, as E+ does
 /// (`SurfaceGeometry.cc`), when the two faces' layers aren't mirror images:
 /// the wall is then a different element seen from each side.
+/// A load given per floor area (people, lights, equipment, infiltration or
+/// ventilation) needs a zone with a floor area, stated or from its floor
+/// surfaces; on a zone with none it would silently be zero.
+fn validate_per_area_loads(model: &ModelInput, result: &mut ValidationResult) {
+    let areas = zone_floor_areas(model);
+    let groups: std::collections::HashMap<&str, &[String]> = model
+        .zone_groups
+        .iter()
+        .map(|g| (g.name.as_str(), g.zones.as_slice()))
+        .collect();
+    let mut check = |kind: &str, name: &str, zones: &[String], per_area: bool| {
+        if !per_area {
+            return;
+        }
+        for r in zones {
+            let members = groups
+                .get(r.as_str())
+                .copied()
+                .unwrap_or(std::slice::from_ref(r));
+            for z in members {
+                if areas.get(z).is_some_and(|a| *a <= 0.0) {
+                    result.severe(format!(
+                        "{kind} '{name}' is given per floor area, but zone '{z}' has no \
+                         floor area: give the zone a floor_area or floor surfaces with vertices"
+                    ));
+                }
+            }
+        }
+    };
+    for p in &model.people {
+        let per_area = p.people_per_area.is_some() || p.area_per_person.is_some();
+        check("People", &p.name, &p.zones, per_area);
+    }
+    for l in &model.lights {
+        check("Lights", &l.name, &l.zones, l.watts_per_area.is_some());
+    }
+    for e in model.equipment.iter().chain(&model.equipment_it) {
+        check("Equipment", &e.name, &e.zones, e.watts_per_area.is_some());
+    }
+    for i in &model.infiltration {
+        check(
+            "Infiltration",
+            &i.name,
+            &i.zones,
+            i.flow_per_floor_area.is_some(),
+        );
+    }
+    for v in &model.ventilation {
+        check("Ventilation", &v.name, &v.zones, v.per_area.is_some());
+    }
+}
+
 fn validate_interzone_surfaces(model: &ModelInput, result: &mut ValidationResult) {
     let pairing = openbse_envelope::surface::pair_interzone_surfaces(&model.surfaces);
     for msg in pairing.errors {
@@ -5352,6 +6423,14 @@ fn validate_interzone_surfaces(model: &ModelInput, result: &mut ValidationResult
 
 pub fn validate_model(model: &ModelInput) -> ValidationResult {
     let mut result = ValidationResult::new();
+
+    if let Some(dst) = &model.simulation.daylight_saving_time {
+        for (field, text) in [("start", &dst.start), ("end", &dst.end)] {
+            if let Err(e) = openbse_envelope::DstDate::parse(text) {
+                result.severe(format!("simulation.daylight_saving_time.{field}: {e}"));
+            }
+        }
+    }
 
     // ── Build lookup sets ──────────────────────────────────────────────────
 
@@ -5402,10 +6481,14 @@ pub fn validate_model(model: &ModelInput) -> ValidationResult {
 
     validate_schedules(model, &schedule_names, &builtin_schedules, &mut result);
     validate_interzone_surfaces(model, &mut result);
+    validate_daylighting(model, &mut result);
+    validate_per_area_loads(model, &mut result);
     warn_shading_geometry_ignored(model, &mut result);
     validate_scheduled_ventilation(model, &mut result);
     validate_duct_ambients(model, &mut result);
-    validate_window_panes(model, &mut result);
+    validate_window_constructions(model, &mut result);
+    validate_cosim(model, &mut result);
+    validate_curve_names(model, &mut result);
 
     // ── Validate people ────────────────────────────────────────────────────
 
@@ -5448,6 +6531,15 @@ pub fn validate_model(model: &ModelInput) -> ValidationResult {
             &mut result,
         );
     }
+    for b in &model.outdoor_controlled_baseboards {
+        check_zone_refs(
+            &b.zones,
+            "Outdoor-controlled baseboard",
+            &b.name,
+            &mut result,
+        );
+    }
+    validate_equipment_levels(model, &mut result);
 
     // ── Validate ground surface temperatures ───────────────────────────────
 
@@ -5606,7 +6698,7 @@ pub fn validate_model(model: &ModelInput) -> ValidationResult {
             }
         }
     }
-    if model.simulation.sizing_averaging_window == 0 {
+    if model.simulation.sizing_averaging_window == Some(0) {
         result.severe("simulation sizing_averaging_window must be at least 1 timestep".to_string());
     }
 
@@ -5697,6 +6789,7 @@ pub fn validate_model(model: &ModelInput) -> ValidationResult {
     crate::plant::validate_plant_connections(model, &mut result);
     crate::plant::validate_chiller_models(model, &mut result);
     crate::plant::validate_pumps(model, &mut result);
+    crate::plant::validate_plant_operation(model, &mut result);
     crate::plant::validate_thermal_storage(model, &mut result);
     crate::plant::validate_cooling_towers(model, &mut result);
 
@@ -5776,7 +6869,10 @@ pub fn validate_model(model: &ModelInput) -> ValidationResult {
     validate_materials(model, &mut result);
     validate_zone_multipliers(model, &mut result);
     validate_dual_duct_loops(model, &mut result);
+    validate_heat_recovery(model, &mut result);
     validate_recirculating_loops(model, &mut result);
+    validate_ups_curves(model, &mut result);
+    validate_supply_temp_limits(model, &mut result);
     validate_no_wshp(model, &mut result);
     validate_radiant_panel_rating(model, &mut result);
 
@@ -5818,6 +6914,27 @@ pub fn validate_model(model: &ModelInput) -> ValidationResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn omitted_terminal_reheat_capacity_is_autosized() {
+        // E+ water and electric reheat coils default to autosize; an omitted
+        // capacity must not become a 0 W coil that never reheats.
+        let vav: TerminalInput = serde_yaml::from_str(
+            "{type: vav_box, name: B, max_air_flow: autosize, reheat_type: hot_water}",
+        )
+        .unwrap();
+        let pfp: TerminalInput = serde_yaml::from_str(
+            "{type: pfp_box, name: P, max_primary_flow: autosize, secondary_fan_flow: 0.2}",
+        )
+        .unwrap();
+        match (vav, pfp) {
+            (TerminalInput::VavBox(v), TerminalInput::PfpBox(p)) => {
+                assert!(v.reheat_capacity.is_autosize());
+                assert!(p.reheat_capacity.is_autosize());
+            }
+            _ => panic!("wrong terminal types"),
+        }
+    }
 
     #[test]
     fn validation_reports_reversed_window() {
@@ -5886,42 +7003,6 @@ surfaces:
                 validation.to_err_file()
             );
         }
-    }
-
-    /// Per-area loads use the floor area auto-calculated from vertices; they
-    /// used to multiply the YAML value, 0 when left out, and come out zero.
-    #[test]
-    fn per_area_loads_use_the_auto_calculated_floor_area() {
-        let yaml = r#"
-simulation: {timesteps_per_hour: 1}
-weather_files: []
-zones:
-  - name: Z
-people:
-  - {name: P, zones: [Z], people_per_area: 0.05}
-lights:
-  - {name: L, zones: [Z], watts_per_area: 10}
-surfaces:
-  - name: F
-    zone: Z
-    type: floor
-    construction: C
-    boundary: adiabatic
-    vertices: [{x: 0, y: 10, z: 0}, {x: 10, y: 10, z: 0}, {x: 10, y: 0, z: 0}, {x: 0, y: 0, z: 0}]
-"#;
-        let model = parse_model_yaml(yaml).unwrap();
-        let zones = resolve_zone_loads(&model);
-        assert!((zones[0].floor_area - 100.0).abs() < 1e-9);
-        let (mut lights, mut people) = (0.0, 0.0);
-        for g in &zones[0].internal_gains {
-            match g {
-                openbse_envelope::InternalGainInput::Lights { power, .. } => lights += power,
-                openbse_envelope::InternalGainInput::People { count, .. } => people += count,
-                _ => {}
-            }
-        }
-        assert!((lights - 1000.0).abs() < 1e-9, "{lights}");
-        assert!((people - 5.0).abs() < 1e-9, "{people}");
     }
 
     #[test]
@@ -5999,21 +7080,69 @@ air_loops:
         )
     }
 
+    fn window_errors(yaml: &str) -> usize {
+        let model: ModelInput =
+            serde_yaml::from_str(&format!("simulation: {{}}\nweather_files: []\n{yaml}")).unwrap();
+        let mut r = ValidationResult::new();
+        validate_window_constructions(&model, &mut r);
+        r.error_count()
+    }
+
+    const CLEAR: &str = "glazing_materials:\n  - {name: C, thickness: 0.003, solar_transmittance: \
+                         0.834, solar_reflectance_front: 0.075, solar_reflectance_back: 0.075}\n";
+
     #[test]
-    fn three_panes_are_severe() {
-        let model = |panes: u32| -> ModelInput {
-            serde_yaml::from_str(&format!(
-                "simulation: {{}}\nweather_files: []\nwindow_constructions:\n  - {{name: W, \
-                 u_factor: 1.0, shgc: 0.4, num_panes: {panes}}}\n"
+    fn window_constructions_are_simple_or_layered() {
+        let w = |fields: &str| {
+            window_errors(&format!(
+                "{CLEAR}window_constructions:\n  - {{name: W{fields}}}\n"
             ))
-            .unwrap()
         };
-        let errors = |panes| {
-            let mut r = ValidationResult::new();
-            validate_window_panes(&model(panes), &mut r);
-            r.error_count()
-        };
-        assert_eq!((errors(1), errors(2), errors(3)), (0, 0, 1));
+        assert_eq!(w(", u_factor: 2.0, shgc: 0.4"), 0, "simple");
+        assert_eq!(w(", u_factor: 2.0"), 1, "simple needs both");
+        assert_eq!(w(""), 1, "nothing");
+        assert_eq!(w(", layers: [{glazing: C}]"), 0, "one pane");
+        let double = ", layers: [{glazing: C}, {gas: argon, width: 0.012}, {glazing: C}]";
+        assert_eq!(w(double), 0);
+        assert_eq!(w(&format!("{double}, u_factor: 2.0")), 1, "both");
+        assert_eq!(
+            w(", layers: [{glazing: C}, {gas: air, width: 0.012}]"),
+            1,
+            "ends in gas"
+        );
+        assert_eq!(w(", layers: [{glazing: X}]"), 1, "unknown glazing");
+        assert_eq!(
+            w(", layers: [{glazing: C}, {gas: air}, {glazing: C}]"),
+            1,
+            "no width"
+        );
+        assert_eq!(
+            w(
+                ", layers: [{glazing: C}, {gas_mixture: [{gas: argon, fraction: 0.9}, \
+               {gas: air, fraction: 0.05}], width: 0.01}, {glazing: C}]"
+            ),
+            1,
+            "fractions"
+        );
+        let five = ", layers: [{glazing: C}, {gas: air, width: 0.01}, {glazing: C}, {gas: air, \
+                    width: 0.01}, {glazing: C}, {gas: air, width: 0.01}, {glazing: C}, {gas: air, \
+                    width: 0.01}, {glazing: C}]";
+        assert_eq!(w(five), 1, "five panes");
+        assert_eq!(
+            w(", u_factor: 2.0, shgc: 0.4, num_panes: 2"),
+            1,
+            "retired pane field"
+        );
+    }
+
+    #[test]
+    fn glazing_materials_are_checked() {
+        let bad = "glazing_materials:\n  - {name: G, thickness: 0.003, solar_transmittance: 0.8, \
+                   solar_reflectance_front: 0.3, solar_reflectance_back: 0.1, \
+                   infrared_transmittance: 0.1}\n";
+        // τ + ρ_front > 1, and long-wave transmittance not modelled.
+        assert_eq!(window_errors(bad), 2);
+        assert_eq!(window_errors(CLEAR), 0);
     }
 
     #[test]
@@ -6048,10 +7177,188 @@ air_loops:
         assert_eq!(result.warning_count(), 1);
     }
 
+    /// A 6 × 5 m zone that states no floor area, with per-area people, lights,
+    /// equipment and infiltration.
+    fn per_area_model(floor: &str) -> ModelInput {
+        parse_model_yaml(&format!(
+            "simulation: {{}}\nweather_files: []\n\
+             zones:\n- {{name: Room}}\n\
+             surfaces:\n{floor}\
+             people:\n- {{name: P, zones: [Room], area_per_person: 6.0, activity_level: 120.0}}\n\
+             lights:\n- {{name: L, zones: [Room], watts_per_area: 10.0}}\n\
+             equipment:\n- {{name: E, zones: [Room], watts_per_area: 5.0}}\n\
+             infiltration:\n- {{name: I, zones: [Room], flow_per_floor_area: 0.001}}\n"
+        ))
+        .unwrap()
+    }
+
+    /// Daylighting controls need an existing zone, reference points that
+    /// share at most the whole zone, and fractions within E+'s ranges.
+    #[test]
+    fn daylighting_controls_are_validated() {
+        let floor = "- {name: F, zone: Room, type: floor, construction: C, vertices: \
+                     [{x: 0, y: 0, z: 0}, {x: 0, y: 5, z: 0}, {x: 6, y: 5, z: 0}, {x: 6, y: 0, z: 0}]}\n";
+        let mut model = per_area_model(floor);
+        let control = |yaml: &str| -> openbse_envelope::DaylightingControlInput {
+            serde_yaml::from_str(yaml).unwrap()
+        };
+        model.daylighting_controls = vec![control(
+            "{name: D, zone: Room, reference_points: [{x: 1, y: 1, z: 0.8, fraction_of_zone: 0.5}]}",
+        )];
+        let ok = validate_model(&model).to_err_file();
+        assert!(!ok.contains("Daylighting control"), "{ok}");
+        model.daylighting_controls = vec![
+            control(
+                "{name: D, zone: Nowhere, minimum_input_power_fraction: 0.8, \
+                 reference_points: [{x: 1, y: 1, z: 0.8, fraction_of_zone: 0.7}, \
+                 {x: 2, y: 1, z: 0.8, fraction_of_zone: 0.7}]}",
+            ),
+            control("{name: E, zone: Nowhere, reference_points: []}"),
+        ];
+        let errors = validate_model(&model).to_err_file();
+        for expected in [
+            "zone 'Nowhere' does not exist",
+            "add up to 1.400",
+            "minimum_input_power_fraction 0.8 is outside [0, 0.6]",
+            "already has daylighting controls",
+            "needs at least one reference point",
+        ] {
+            assert!(errors.contains(expected), "{expected}: {errors}");
+        }
+    }
+
+    /// A 30 m² room with 4 people and the given extra YAML.
+    fn equipment_model(extra: &str) -> ModelInput {
+        parse_model_yaml(&format!(
+            "simulation: {{}}\nweather_files: []\n\
+             zones:\n- {{name: Room, floor_area: 30.0}}\n- {{name: Empty, floor_area: 30.0}}\n\
+             people:\n- {{name: P, zones: [Room], count: 4.0, activity_level: 120.0}}\n{extra}"
+        ))
+        .unwrap()
+    }
+
+    #[test]
+    fn equipment_keeps_its_fuel_and_takes_a_level_per_person() {
+        use openbse_envelope::{EquipmentFuel, InternalGainInput};
+        let model = equipment_model(
+            "equipment:\n\
+             - {name: Range, zones: [Room], fuel: natural_gas, watts_per_person: 150.0}\n\
+             - {name: Steam, zones: [Room], fuel: district_heating_steam, power: 900.0}\n\
+             outdoor_controlled_baseboards:\n\
+             - {name: BB, zones: [Room], capacity_at_low_temperature: 1000.0, low_temperature: -10.0, \
+                capacity_at_high_temperature: 200.0, high_temperature: 15.0}\n",
+        );
+        let zone = &resolve_zone_loads(&model)[0];
+        let mut equipment = vec![];
+        let mut baseboards = 0;
+        for g in &zone.internal_gains {
+            match g {
+                InternalGainInput::Equipment { power, fuel, .. } => equipment.push((*fuel, *power)),
+                InternalGainInput::OutdoorControlledBaseboard { .. } => baseboards += 1,
+                _ => {}
+            }
+        }
+        // 150 W/person × 4 people (E+ Watts/Person × TotOccupants).
+        assert_eq!(
+            equipment,
+            vec![
+                (EquipmentFuel::NaturalGas, 600.0),
+                (EquipmentFuel::DistrictHeatingSteam, 900.0)
+            ]
+        );
+        assert_eq!(baseboards, 1);
+        assert_eq!(
+            validate_model(&model).error_count(),
+            0,
+            "{}",
+            validate_model(&model).to_err_file()
+        );
+    }
+
+    #[test]
+    fn invalid_equipment_and_baseboards_are_severe() {
+        let errors = |extra: &str| validate_model(&equipment_model(extra)).to_err_file();
+        // Only unmetered equipment may remove heat (E+ OtherEquipment, fuel None).
+        assert!(
+            errors("equipment:\n- {name: E, zones: [Room], power: -100.0}\n")
+                .contains("only fuel: none")
+        );
+        assert!(
+            !errors("equipment:\n- {name: E, zones: [Room], fuel: none, power: -100.0}\n")
+                .contains("severe")
+        );
+        assert!(errors(
+            "equipment:\n- {name: E, zones: [Room], power: 10.0, watts_per_area: 1.0}\n"
+        )
+        .contains("give one of power"));
+        assert!(
+            errors("equipment:\n- {name: E, zones: [Empty], watts_per_person: 10.0}\n")
+                .contains("zone 'Empty' has no people")
+        );
+        assert!(
+            errors("equipment:\n- {name: E, zones: [Room], watts_per_person: 0.0}\n")
+                .contains("watts_per_person must be positive")
+        );
+        assert!(errors(
+            "equipment_it:\n- {name: S, zones: [Room], power: 10.0, fuel: natural_gas}\n"
+        )
+        .contains("IT equipment is electric"));
+        let bb = |lo: f64, hi: f64, r: f64| {
+            errors(&format!(
+                "outdoor_controlled_baseboards:\n- {{name: B, zones: [Room], \
+                 capacity_at_low_temperature: 1000.0, low_temperature: {lo}, \
+                 capacity_at_high_temperature: 0.0, high_temperature: {hi}, radiant_fraction: {r}}}\n"
+            ))
+        };
+        assert!(bb(10.0, 10.0, 0.0).contains("must be above"));
+        assert!(bb(-10.0, 10.0, 1.5).contains("radiant_fraction"));
+        assert!(!bb(-10.0, 10.0, 0.5).contains("severe"));
+    }
+
+    #[test]
+    fn per_area_loads_use_the_floor_area_from_geometry() {
+        let floor = "- {name: F, zone: Room, type: floor, construction: C, vertices: \
+                     [{x: 0, y: 0, z: 0}, {x: 0, y: 5, z: 0}, {x: 6, y: 5, z: 0}, {x: 6, y: 0, z: 0}]}\n";
+        let model = per_area_model(floor);
+        use openbse_envelope::InternalGainInput;
+        let zone = &resolve_zone_loads(&model)[0];
+        assert!((zone.floor_area - 30.0).abs() < 1e-9, "{}", zone.floor_area);
+        let mut seen = 0;
+        for g in &zone.internal_gains {
+            match g {
+                InternalGainInput::People { count, .. } => {
+                    assert!((count - 5.0).abs() < 1e-9, "{count} people");
+                    seen += 1;
+                }
+                InternalGainInput::Lights { power, .. } => {
+                    assert!((power - 300.0).abs() < 1e-9, "{power} W lights");
+                    seen += 1;
+                }
+                InternalGainInput::Equipment { power, .. } => {
+                    assert!((power - 150.0).abs() < 1e-9, "{power} W equipment");
+                    seen += 1;
+                }
+                _ => {}
+            }
+        }
+        assert_eq!(seen, 3);
+        assert!((zone.infiltration[0].design_flow_rate - 0.03).abs() < 1e-12);
+        assert!(!validate_model(&model)
+            .to_err_file()
+            .contains("no floor area"));
+    }
+
+    #[test]
+    fn per_area_loads_on_a_zone_without_floor_area_are_severe() {
+        let result = validate_model(&per_area_model(""));
+        assert_eq!(result.error_count(), 4, "{}", result.to_err_file());
+        assert!(result.to_err_file().contains("no floor area"));
+    }
+
     #[test]
     fn unknown_schedule_reference_is_severe_wherever_it_appears() {
         let result = schedule_diagnostics(
-            "people:\n- {name: P, zones: [Z], count: 1, schedule: typo_people}\n",
+            "people:\n- {name: P, zones: [Z], count: 1, activity_level: 120, schedule: typo_people}\n",
         );
         assert!(result.to_err_file().contains("typo_people"));
         assert!(result.error_count() >= 1, "{}", result.to_err_file());
@@ -6071,8 +7378,8 @@ air_loops:
     fn builtin_and_defined_schedules_are_accepted() {
         let result = schedule_diagnostics(
             "schedules:\n- {name: S, compact: {weekday: '1'}}\n\
-             people:\n- {name: P, zones: [Z], count: 1, schedule: S}\n\
-             - {name: Q, zones: [Z], count: 1, schedule: always_on}\n",
+             people:\n- {name: P, zones: [Z], count: 1, activity_level: 120, schedule: S}\n\
+             - {name: Q, zones: [Z], count: 1, activity_level: 120, schedule: always_on}\n",
         );
         assert!(!result.to_err_file().contains("not found in schedules"));
     }
@@ -6119,11 +7426,10 @@ air_loops:
             ))
             .unwrap()
         };
-        let fraction =
-            |m: &ModelInput| compute_oa_fraction(m, &m.air_loops[0], &resolve_zone_loads(m), 0.2);
+        let flow = |m: &ModelInput| resolve_zone_loads(m)[0].design_outdoor_air_flow().unwrap();
         // Area 0.1 + absolute 0.05 + ACH 1.2 × 300 / 3600 = 0.1 m³/s
-        assert!((fraction(&model("sum")) - 0.25).abs() < 1e-12);
-        assert!((fraction(&model("maximum")) - 0.1).abs() < 1e-12);
+        assert!((flow(&model("sum")) - 0.25).abs() < 1e-12);
+        assert!((flow(&model("maximum")) - 0.1).abs() < 1e-12);
     }
 
     #[test]
@@ -6175,6 +7481,127 @@ surfaces:
         );
         assert_eq!(result.error_count(), 0);
         assert_eq!(result.warning_count(), 1);
+    }
+
+    #[test]
+    fn inverted_supply_temperature_limits_are_severe() {
+        let model = |controls: &str| {
+            parse_model_yaml(&format!(
+                r#"
+simulation: {{}}
+weather_files: []
+zones:
+  - name: Office
+air_loops:
+  - name: AHU
+    system_type: vav
+    controls:
+      {controls}
+    equipment:
+      - {{type: fan, name: Fan, source: variable_volume, design_flow_rate: 1.0, pressure_rise: 500.0}}
+    zone_terminals:
+      - zone: Office
+"#
+            ))
+            .unwrap()
+        };
+        let severe = |controls: &str| validate_model(&model(controls)).error_count();
+        let ok = "{type: demand_reset, sat_min: 12.0, sat_max: 16.0}";
+        assert_eq!(severe(&format!("cooling_sat_reset: {ok}")), 0);
+        assert_eq!(
+            severe("cooling_sat_reset: {type: demand_reset, sat_min: 16.0, sat_max: 12.0}"),
+            1
+        );
+        assert_eq!(
+            severe(
+                "heating_sat_reset: {type: oa_reset, sat_min: 20.0, sat_max: 30.0, \
+                 oa_low: 10.0, oa_high: 10.0}"
+            ),
+            1
+        );
+        assert_eq!(
+            severe(
+                "economizer: {economizer_type: differential_dry_bulb, \
+                 load_reset: {min_supply_temp: 18.0, max_supply_temp: 13.0}}"
+            ),
+            1
+        );
+    }
+
+    /// #435: a runaround coil is built sensible-only, an unknown source is
+    /// severe rather than a silent wheel, and a latent effectiveness on a
+    /// sensible-only device is severe rather than ignored.
+    #[test]
+    fn heat_recovery_sources_are_built_as_named() {
+        use openbse_core::graph::GraphComponent;
+        use openbse_core::ports::{AirPort, SimulationContext, SizingInternalGains};
+        use openbse_core::types::{DayType, TimeStep};
+        use openbse_psychrometrics::MoistAirState;
+        let model = |source: &str, latent: f64| {
+            parse_model_yaml(&format!(
+                r#"
+simulation: {{}}
+weather_files: []
+zones:
+  - name: Office
+air_loops:
+  - name: AHU
+    system_type: psz_ac
+    equipment:
+      - {{type: heat_recovery, name: HR, source: {source}, sensible_effectiveness: 0.7, latent_effectiveness: {latent}}}
+      - {{type: fan, name: Fan, source: constant_volume, design_flow_rate: 1.0, pressure_rise: 500.0}}
+    zone_terminals:
+      - zone: Office
+"#
+            ))
+            .unwrap()
+        };
+        let report = |m: &ModelInput| validate_model(m).to_err_file();
+        assert!(report(&model("rotary", 0.0)).contains("unknown source 'rotary'"));
+        assert!(report(&model("runaround_coil", 0.6)).contains("transfers no moisture"));
+        assert!(report(&model("plate", 0.6)).contains("transfers no moisture"));
+        assert_eq!(
+            validate_model(&model("runaround_coil", 0.0)).error_count(),
+            0
+        );
+        assert_eq!(validate_model(&model("wheel", 0.6)).error_count(), 0);
+
+        // Humid exhaust, dry outdoor air: heat moves either way, moisture
+        // only through the wheel.
+        let ctx = SimulationContext {
+            timestep: TimeStep {
+                month: 1,
+                day: 15,
+                hour: 12,
+                sub_hour: 1,
+                timesteps_per_hour: 1,
+                sim_time_s: 0.0,
+                dt: 3600.0,
+            },
+            outdoor_air: MoistAirState::new(0.0, 0.002, 101325.0),
+            day_type: DayType::WeatherDay,
+            is_sizing: false,
+            sizing_internal_gains: SizingInternalGains::Full,
+        };
+        let outlet = |source: &str| {
+            let mut graph =
+                build_graph(&model(source, if source == "wheel" { 0.6 } else { 0.0 })).unwrap();
+            let idx = graph.node_by_name("HR").unwrap();
+            let GraphComponent::Air(c) = graph.component_mut(idx) else {
+                panic!("heat recovery is an air component");
+            };
+            c.set_exhaust_conditions(22.0, 0.012);
+            let inlet = AirPort::new(MoistAirState::new(0.0, 0.002, 101325.0), 1.0);
+            c.simulate_air(&inlet, &ctx).state
+        };
+        let runaround = outlet("runaround_coil");
+        assert!(runaround.t_db > 10.0, "heat recovered: {}", runaround.t_db);
+        assert!(
+            (runaround.w - 0.002).abs() < 1e-12,
+            "no moisture: {}",
+            runaround.w
+        );
+        assert!(outlet("wheel").w > 0.005);
     }
 
     #[test]
@@ -6277,6 +7704,26 @@ air_loops:
         );
         assert!(
             report.contains("Construction 'Glass' referenced by surface 'Wall' is the wrong kind"),
+            "{report}"
+        );
+    }
+
+    /// A thermostat takes setpoint schedules or a `thermostat_schedule`, not
+    /// both; temperatures in a setpoint schedule draw no clamp warning.
+    #[test]
+    fn validation_of_setpoint_schedules() {
+        let yaml = |extra: &str| {
+            format!(
+                "simulation: {{}}\nweather_files: []\nzones:\n  - name: Hall\nschedules:\n  - name: HTG\n    weekday: [15.6, 15.6, 15.6, 15.6, 15.6, 21.1, 21.1, 21.1, 21.1, 21.1, 21.1, 21.1, 21.1, 21.1, 21.1, 21.1, 21.1, 21.1, 21.1, 21.1, 21.1, 15.6, 15.6, 15.6]\nthermostats:\n  - name: Stat\n    zones: [Hall]\n    heating_setpoint_schedule: HTG\n{extra}"
+            )
+        };
+        let report = validate_model(&parse_model_yaml(&yaml("")).unwrap()).to_err_file();
+        assert!(!report.contains("clamped"), "{report}");
+        assert!(!report.contains("not both"), "{report}");
+        let both = yaml("    thermostat_schedule:\n      - {start_hour: 1, end_hour: 6, heating_setpoint: 15.0, cooling_setpoint: 30.0}\n");
+        let report = validate_model(&parse_model_yaml(&both).unwrap()).to_err_file();
+        assert!(
+            report.contains("Thermostat 'Stat': give either thermostat_schedule"),
             "{report}"
         );
     }

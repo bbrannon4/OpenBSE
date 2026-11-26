@@ -35,6 +35,7 @@ equipment:
   - name: CE100 Internal Load
     zones: [CE100 Zone]
     power: 5400.0
+    fuel: none
     radiant_fraction: 0.0
     latent_fraction: 0.000000
 

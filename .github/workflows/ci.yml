@@ -60,10 +60,36 @@ jobs:
         run: cargo build --release
 
       # The normative weather CSV is licensed (gitignored); reconstruct it
-      # from the in-repo EPW. This exercises the SAME TMY3 input path as
-      # local validation (verified identical to 0.1 kWh on all cases).
+      # from the in-repo EPW. The reconstruction equals the normative
+      # 725650TY.csv in every column the engine reads (#507).
       - name: Reconstruct normative weather
         run: python3 140_tests/scripts/reconstruct_140_weather.py
+
+      # Each case's weather file is the Standard's normative file, converted
+      # field for field (Section 9 and 11 from TMY2, Section 10 from WYEC2,
+      # Section 7 reconstructed as above); conformance_spec.json pins which
+      # file each case reads. Changing a file requires updating its hash here.
+      - name: Verify normative weather files
+        run: |
+          sha256sum -c - <<'SUMS'
+          cf458101475d2b2095bedc4d08148f5b47b3903ccce260c34eaa3020eb0e957e  140_tests/weather/HE100W.csv
+          9deb9b27577a7692ba31d676595a3aff95f9233e3568592150b95e15b531fde9  140_tests/weather/HE120W.csv
+          87c40b576be68089c5c443567b44ed4a683a1e0aa47927d71e9672db736b42bb  140_tests/weather/HE130W.csv
+          fe4e138fccf30efe5c5bc503994e279e662a5030d3ba512ed8d25c2c067895c7  140_tests/weather/HE140W.csv
+          96bd58cb853a065ad778ae35438693f7d32c34622e95fcc8874d6095c5744376  140_tests/weather/HE210W.csv
+          22d45f6deb4d9f4fb7c7639292fef520404d2393a74ae8082c1ecbf9c1021762  140_tests/weather/AE101.csv
+          89bf8313aeebdf48cc83e9278d80cac9ce7d4ebba9a98ad436c91049121f36cb  140_tests/weather/AE103.csv
+          4eed66f9c2c4c7fb399f5496e0a227a2e40dcfd0e129d9d76b13665ffe070548  140_tests/weather/AE104.csv
+          48b8461cd1383d2a7d62cbe9d74eae54f2436c42f1a623ebc759f8030ee27e2b  140_tests/weather/AE105.csv
+          9387ba2e245973711b699847b761ba5b8b8025410a16bfc47252a3e78e818e73  140_tests/weather/AE106.csv
+          93e18a83ac93038388f11b17b180710a8b9e046cd832d20158a867f67a08ee76  140_tests/cases/CE100A.csv
+          8163e523cdc856a2ccd0a2b6e5f9291c48fab251b6382b3798396dfb566f53fa  140_tests/cases/CE110A.csv
+          bffe8602ddd3ed47f050e469fef5d702bf8371fad1a49a57bddbd43b88f50d5e  140_tests/cases/CE165A.csv
+          35461caa566a5405b8c9c40c9bc0cf6ee5c6c68bfdea6de451595571f016167e  140_tests/cases/CE200A.csv
+          1ab55ce0f60ab29bb205f2eec00cd89c1319865bf540bbbaf9ae7f7ff7d9e012  140_tests/cases/CE300.csv
+          b3d6d975b4f02031d65b23d26a93d25b1ae375e2819a60cbce0f53f85d07f3b8  140_tests/weather/725650TYCST.epw
+          b7bc66f6e3c68e205403fa3747b1ffc7dfb75b1dcdf154d5363bc269a8f4b8aa  140_tests/cases/ASHRAE 140-2023 Accompanying FIles/Std140_TF_Files/Normative Materials/725650TY.csv
+          SUMS
 
       # Fail hard on any case that crashes — a missing summary must never
       # silently read as a pass.
@@ -110,8 +136,8 @@ jobs:
       - name: Verify model baselines are untampered
         run: |
           sha256sum -c - <<'SUMS'
-          bf182f1baf52b969bc87001d4f1d05e4e2823181863dfc3072fd4f3a4b2bf6b0  tests/model_baselines.json
-          28981607c6548ea42cac4a1ed962f4f9bc245366d68f35d35e538d18db2d036e  tests/model_checks.json
+          ffdda926bf91b24535cda8b1f2e5664bebba263947ef546a21b22c1876f9b724  tests/model_baselines.json
+          39b00c5e19642685af235f3d49eb91869feca4efdd44caad3dfdf8cd60839d91  tests/model_checks.json
           SUMS
 
       - name: Build release
@@ -150,8 +176,8 @@ jobs:
       - name: Verify model baselines are untampered
         run: |
           sha256sum -c - <<'SUMS'
-          bf182f1baf52b969bc87001d4f1d05e4e2823181863dfc3072fd4f3a4b2bf6b0  tests/model_baselines.json
-          28981607c6548ea42cac4a1ed962f4f9bc245366d68f35d35e538d18db2d036e  tests/model_checks.json
+          ffdda926bf91b24535cda8b1f2e5664bebba263947ef546a21b22c1876f9b724  tests/model_baselines.json
+          39b00c5e19642685af235f3d49eb91869feca4efdd44caad3dfdf8cd60839d91  tests/model_checks.json
           SUMS
 
       - name: Build release

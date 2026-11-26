@@ -311,8 +311,8 @@ fn set_window_construction_field(
     value: f64,
 ) {
     match field {
-        "u_factor" => wc.u_factor = value,
-        "shgc" => wc.shgc = value,
+        "u_factor" => wc.u_factor = Some(value),
+        "shgc" => wc.shgc = Some(value),
         _ => log::warn!(
             "Unknown field '{}' on window construction '{}' — skipping",
             field,
@@ -345,7 +345,7 @@ fn set_people_field(p: &mut openbse_envelope::PeopleInput, field: &str, value: f
         "people_per_area" => p.people_per_area = Some(value),
         "area_per_person" => p.area_per_person = Some(value),
         "activity_level" => p.activity_level = value,
-        "sensible_fraction" => p.sensible_fraction = value,
+        "sensible_fraction" => p.sensible_fraction = Some(value),
         "radiant_fraction" => p.radiant_fraction = value,
         _ => log::warn!(
             "Unknown field '{}' on people '{}' — skipping",

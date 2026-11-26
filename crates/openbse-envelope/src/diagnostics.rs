@@ -117,6 +117,9 @@ pub struct EnvelopeDiagnostics {
     pub fatal: Option<String>,
     /// Surface–air coupling passes (#209).
     pub surface_air: SurfaceAirPasses,
+    /// Windows whose face temperatures were still changing after the face
+    /// solve's iteration limit, by surface name; the value is the last step [K].
+    pub window_unconverged: BTreeMap<String, HoldEvent>,
 }
 
 /// Outer surface–air passes of the envelope solves since the last take.
@@ -164,6 +167,16 @@ impl EnvelopeDiagnostics {
         }
     }
 
+    /// Record a window face solve that hit its iteration limit, still moving
+    /// by `last_change` [K].
+    pub fn window_unconverged(&mut self, surface: &str, last_change: f64) {
+        let now = self.now;
+        self.window_unconverged
+            .entry(surface.to_string())
+            .or_default()
+            .record(last_change, now);
+    }
+
     /// Record a NaN `state` replaced by its previous value.
     pub fn nan_held(&mut self, state: impl FnOnce() -> String) {
         let now = self.now;
@@ -179,6 +192,7 @@ impl EnvelopeDiagnostics {
             && self.nan_holds.is_empty()
             && self.fatal.is_none()
             && self.surface_air.unconverged == 0
+            && self.window_unconverged.is_empty()
     }
 
     /// Hand over the events recorded so far and start afresh.

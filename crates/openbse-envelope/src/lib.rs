@@ -14,8 +14,10 @@ pub mod airflow_network;
 pub mod comfort_grid;
 pub mod convection;
 pub mod ctf;
+pub mod daylighting;
 pub mod diagnostics;
 pub mod geometry;
+pub mod glazing;
 pub mod ground_temp;
 pub mod hamt;
 pub mod heat_balance;
@@ -35,16 +37,19 @@ pub use airflow_network::{
     AirflowNetwork, AirflowNetworkConfig, CpFacade, CpModel, CpTable, LeakageClass,
     SurfaceAirflowOverride,
 };
+pub use daylighting::{DaylightingControlInput, LightingControl, ReferencePointInput};
 pub use geometry::{azimuth_to_cardinal, CardinalDirection, EnvelopeAreas, Point3D};
 pub use ground_temp::GroundTempModel;
 pub use heat_balance::{BuildingEnvelope, SolarDistributionMethod};
 pub use infiltration::InfiltrationInput;
-pub use internal_gains::InternalGainInput;
+pub use internal_gains::{EquipmentFuel, FuelGroup, FuelPowers, InternalGainInput};
 pub use material::{
-    Construction, ConstructionLayer, FFactorConstruction, Material, ResolvedLayer,
-    SimpleConstruction, WindowConstruction,
+    Construction, ConstructionLayer, FFactorConstruction, GapGas, GasFraction, GlazingMaterial,
+    Material, ResolvedLayer, SimpleConstruction, WindowConstruction, WindowLayer,
 };
-pub use schedule::{day_of_week, ScheduleInput, ScheduleManager};
+pub use schedule::{
+    day_of_week, in_daylight_saving, DaylightSavingShift, DstDate, ScheduleInput, ScheduleManager,
+};
 pub use shading::{
     FinInput, OverhangInput, ShadingCalculation, ShadingSurfaceInput, WindowShadingInput,
 };
@@ -57,6 +62,6 @@ pub use zone::{
 };
 pub use zone_loads::{
     EquipmentGainInput, ExhaustFanTopLevel, IdealLoadsTopLevel, InfiltrationInteraction,
-    InfiltrationTopLevel, LightsInput, OutdoorAirTopLevel, PeopleInput, ThermostatInput,
-    VentilationCombiningMethod, VentilationTopLevel,
+    InfiltrationTopLevel, LightsInput, OutdoorAirTopLevel, OutdoorControlledBaseboardInput,
+    PeopleInput, ThermostatInput, VentilationCombiningMethod, VentilationTopLevel,
 };

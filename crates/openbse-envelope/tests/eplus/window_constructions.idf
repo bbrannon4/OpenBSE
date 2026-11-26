@@ -1,0 +1,67 @@
+! Window constructions for the EnergyPlus comparison in glazing.rs tests
+! (simple_glazing_matches_energyplus_equivalent_layer,
+!  layered_systems_match_energyplus_nominal_performance).
+!
+! Append to EnergyPlus 25.2 ExampleFiles/1ZoneUncontrolled.idf and run it
+! (any weather file). The reference values are the WindowMaterial:Glazing
+! and WindowConstruction lines of eplusout.eio.
+WindowMaterial:SimpleGlazingSystem, SGS1, 1.19, 0.44;
+WindowMaterial:SimpleGlazingSystem, SGS2, 2.0, 0.40;
+WindowMaterial:SimpleGlazingSystem, SGS3, 3.0, 0.60;
+WindowMaterial:SimpleGlazingSystem, SGS4, 5.8, 0.82;
+WindowMaterial:SimpleGlazingSystem, SGS5, 3.9, 0.52;
+WindowMaterial:SimpleGlazingSystem, SGS6, 1.6, 0.27;
+WindowMaterial:Glazing, CLEAR3, SpectralAverage, , 0.003, 0.834, 0.075, 0.075, 0.899, 0.083, 0.083, 0.0, 0.84, 0.84, 1.0;
+WindowMaterial:Glazing, CSR42, SpectralAverage, , 0.0032, 0.452, 0.359, 0.397, 0.714, 0.207, 0.148, 0.0, 0.84, 0.047, 1.0;
+WindowMaterial:Gas, AIR12, Air, 0.012;
+WindowMaterial:Gas, ARGON12, Argon, 0.012;
+WindowMaterial:Gas, KRYPTON8, Krypton, 0.008;
+WindowMaterial:Gas, XENON8, Xenon, 0.008;
+WindowMaterial:Gas, AIR8, Air, 0.008;
+WindowMaterial:GasMixture, ARAIR13, 0.0127, 2, Argon, 0.9, Air, 0.1;
+Construction, C_SGS1, SGS1;
+Construction, C_SGS2, SGS2;
+Construction, C_SGS3, SGS3;
+Construction, C_SGS4, SGS4;
+Construction, C_SGS5, SGS5;
+Construction, C_SGS6, SGS6;
+Construction, C_SINGLE, CLEAR3;
+Construction, C_DBL, CLEAR3, AIR12, CLEAR3;
+Construction, C_LOWE, CSR42, ARGON12, CLEAR3;
+Construction, C_TRIPLE, CSR42, ARAIR13, CLEAR3, ARAIR13, CLEAR3;
+Construction, C_QUAD, CLEAR3, KRYPTON8, CSR42, XENON8, CLEAR3, AIR8, CLEAR3;
+
+FenestrationSurface:Detailed, W_C_SGS1, Window, C_SGS1, Zn001:Wall001, , 0.5, , 1, 4,
+  0.2,0,2.5, 0.2,0,1.0, 1.2,0,1.0, 1.2,0,2.5;
+
+FenestrationSurface:Detailed, W_C_SGS2, Window, C_SGS2, Zn001:Wall001, , 0.5, , 1, 4,
+  1.5,0,2.5, 1.5,0,1.0, 2.5,0,1.0, 2.5,0,2.5;
+
+FenestrationSurface:Detailed, W_C_SGS3, Window, C_SGS3, Zn001:Wall001, , 0.5, , 1, 4,
+  2.8000000000000003,0,2.5, 2.8000000000000003,0,1.0, 3.8000000000000003,0,1.0, 3.8000000000000003,0,2.5;
+
+FenestrationSurface:Detailed, W_C_SGS4, Window, C_SGS4, Zn001:Wall001, , 0.5, , 1, 4,
+  4.1000000000000005,0,2.5, 4.1000000000000005,0,1.0, 5.1000000000000005,0,1.0, 5.1000000000000005,0,2.5;
+
+FenestrationSurface:Detailed, W_C_SGS5, Window, C_SGS5, Zn001:Wall001, , 0.5, , 1, 4,
+  5.4,0,2.5, 5.4,0,1.0, 6.4,0,1.0, 6.4,0,2.5;
+
+FenestrationSurface:Detailed, W_C_SGS6, Window, C_SGS6, Zn001:Wall001, , 0.5, , 1, 4,
+  6.7,0,2.5, 6.7,0,1.0, 7.7,0,1.0, 7.7,0,2.5;
+
+FenestrationSurface:Detailed, W_C_SINGLE, Window, C_SINGLE, Zn001:Wall001, , 0.5, , 1, 4,
+  8.0,0,2.5, 8.0,0,1.0, 9.0,0,1.0, 9.0,0,2.5;
+
+FenestrationSurface:Detailed, W_C_DBL, Window, C_DBL, Zn001:Wall001, , 0.5, , 1, 4,
+  9.299999999999999,0,2.5, 9.299999999999999,0,1.0, 10.299999999999999,0,1.0, 10.299999999999999,0,2.5;
+
+FenestrationSurface:Detailed, W_C_LOWE, Window, C_LOWE, Zn001:Wall001, , 0.5, , 1, 4,
+  10.6,0,2.5, 10.6,0,1.0, 11.6,0,1.0, 11.6,0,2.5;
+
+FenestrationSurface:Detailed, W_C_TRIPLE, Window, C_TRIPLE, Zn001:Wall001, , 0.5, , 1, 4,
+  11.9,0,2.5, 11.9,0,1.0, 12.9,0,1.0, 12.9,0,2.5;
+
+FenestrationSurface:Detailed, W_C_QUAD, Window, C_QUAD, Zn001:Wall001, , 0.5, , 1, 4,
+  13.2,0,2.5, 13.2,0,1.0, 14.2,0,1.0, 14.2,0,2.5;
+
+Output:Variable,*,Surface Window Heat Gain Rate,Hourly;

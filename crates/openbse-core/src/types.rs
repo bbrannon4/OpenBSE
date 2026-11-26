@@ -68,6 +68,11 @@ pub enum DayType {
 /// YAML inputs accept the `autosize` string, which maps to this constant.
 pub const AUTOSIZE: f64 = -99999.0;
 
+/// Rated air volume flow per watt of rated total capacity a DX coil's
+/// performance curves are valid in [m³/s/W]: 300 to 450 cfm/ton (E+
+/// `MinRatedVolFlowPerRatedTotCap`, `MaxRatedVolFlowPerRatedTotCap`).
+pub const DX_FLOW_PER_CAPACITY: (f64, f64) = (4.027e-5, 6.041e-5);
+
 /// Check if a value is marked for autosizing.
 pub fn is_autosize(val: f64) -> bool {
     (val - AUTOSIZE).abs() < 1.0

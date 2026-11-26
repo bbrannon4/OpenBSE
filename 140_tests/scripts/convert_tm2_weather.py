@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """Convert an ASHRAE-140 TMY2 (.TM2) weather file to the TMY3-CSV format
-OpenBSE reads (same layout as the CE_a CExxxA.csv files)."""
+OpenBSE reads, field for field: the normative files' sky cover, dew point,
+pressure, wind and solar carry over unchanged.
+
+usage: convert_tm2_weather.py <normative .TM2> <output .csv>"""
 import sys, os
 
 def g(line, a, b):  # 0-indexed [a:b], int, '' -> 0
@@ -55,15 +58,13 @@ def convert(tm2_path, csv_path):
     open(csv_path,'w').write("\n".join(out)+"\n")
     return out
 
-tm2="/Users/benjaminbrannon/Downloads/Accompanying FIles/Std140_CE_b_Files/Normative Materials/CE300.TM2"
-csv="/Users/benjaminbrannon/Documents/GitHub/OpenBSE/140_tests/weather/CE300.csv"
-rows=convert(tm2,csv)
-print("header:", rows[0])
-print("rows written:", len(rows)-2)
-print("\n=== sanity: first 6 hours (date, time, dry-bulb, dew-point, RH, wind) ===")
-for r in rows[2:8]:
-    f=r.split(","); print(f" {f[0]} {f[1]}  Tdb={f[31]}  Tdew={f[34]}  RH={f[37]}  Wspd={f[46]}")
-# annual min/max/mean dry-bulb as a sanity check for New Orleans
-import statistics
-tdbs=[float(r.split(",")[31]) for r in rows[2:]]
-print(f"\nAnnual dry-bulb: min={min(tdbs):.1f} max={max(tdbs):.1f} mean={statistics.mean(tdbs):.1f} (New Orleans expect ~ -5..37, mean ~20)")
+if __name__ == "__main__":
+    # usage: convert_tm2_weather.py <normative .TM2> <output .csv>
+    #   CE_a (Section 9A): CE100A, CE110A, CE165A, CE200A -> 140_tests/cases/
+    #   CE_b (Section 9B): CE300 -> 140_tests/cases/
+    #   AE (Section 11): AE101, AE103, AE104, AE105, AE106 -> 140_tests/weather/
+    if len(sys.argv) != 3:
+        sys.exit(__doc__)
+    rows = convert(sys.argv[1], sys.argv[2])
+    print("header:", rows[0])
+    print("rows written:", len(rows) - 2)

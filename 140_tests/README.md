@@ -1,15 +1,17 @@
 # ASHRAE Standard 140-2023 Validation Tests
 
 **Standard:** ASHRAE Standard 140-2023 — Section 7 (thermal fabric), Section 9 (cooling equipment), Section 10 (heating equipment) and Section 11 (air-side equipment)
-**Weather:** each section uses its own prescribed files (see `weather/`). Section 7 uses 725650TYCST.epw (Denver, CO — 39.833°N, 104.650°W, 1650m elevation)
+**Weather:** each case reads the Standard's normative weather file, converted field for field: Section 7 the 725650TY.CSV (Denver, CO, 1650 m; licensed, rebuilt in CI from `weather/725650TYCST.epw`), Section 9 `cases/CE*.csv` from the CExxx TMY2 files, Section 10 `weather/HE*W.csv` from the WYEC2 files and Section 11 `weather/AE10x.csv` from the TMY2 files. CI pins each file's hash.
 
-## Current Status: 548/550 gate checks pass
+**Conformance:** [`CONFORMANCE.md`](CONFORMANCE.md) checks every case against each requirement of the Standard. `conformance_spec.json` holds the specified values (2,523 across the 96 cases) and `crates/openbse-io/tests/ashrae140_conformance.rs` checks them against the parsed cases.
+
+## Current Status: 550/550 gate checks pass
 
 | Section | Cases | Checks passing |
 |---|---|---|
-| 7 — Thermal fabric (600 and 900 series) | 27 | 62/63 |
+| 7 — Thermal fabric (600 and 900 series) | 27 | 63/63 |
 | 9A — Cooling equipment, analytical (CE100–CE200) | 14 | 112/112 |
-| 9B — Cooling equipment, dynamic (CE300–CE545) | 20 | 230/231 |
+| 9B — Cooling equipment, dynamic (CE300–CE545) | 20 | 231/231 |
 | 10 — Heating equipment (HE100–HE230) | 11 | 48/48 |
 | 11 — Air-side equipment (AE101–AE445) | 24 | 96/96 |
 
@@ -20,15 +22,15 @@ Section 7 in detail:
 - **Free-float temperatures:** 18/18 pass (all 6 cases)
 - **960 Sun Zone temperatures:** 3/3 pass
 
-Two more misses: CE540 annual condenser-fan energy, and CE195 February sensible coil load, 0.03 kWh below range (#295). They are listed, with the reasons, under `KNOWN_FAILURES` in `scripts/build_140_csv.py`.
+All 550 checks pass; `KNOWN_FAILURES` in `scripts/build_140_csv.py` is empty.
 
-`scripts/build_140_csv.py` writes the complete pass/fail matrix to `scripts/FULL_140_RESULTS.csv`. CI runs every case and this gate on each commit. The copy committed at `results/FULL_140_RESULTS.csv` is a snapshot taken with the v0.7.0 portal submission.
+`scripts/build_140_csv.py` writes the complete pass/fail matrix to `scripts/FULL_140_RESULTS.csv`. CI runs every case and this gate on each commit and keeps that file as a run artifact. The copy committed at `results/FULL_140_RESULTS.csv` is the matrix at the commit that last regenerated it. Zone temperatures (free-float maxima, minima and means, and the furnace cases' zone temperatures) are hourly integrated values, as the Standard's output forms ask: the gate averages any sub-hourly rows to the hour before taking extremes.
 
-**Tight margins to watch:** Case 980FF mean temp (exactly at floor), Case 640/680/695 heating within 15 kWh of ceiling. (Case 960 heating gained ~80 kWh of margin once the sunspace switched to geometric interior solar distribution, and Case 670 sits mid-range since the single-pane first-principles path — see issue #101.)
+**Tight margins to watch:** Case 960 sun-zone maximum 48.7 °C (floor 48.1), Case 680 heating 2,218 kWh (ceiling 2,286), Case 640 heating 2,641 kWh (ceiling 2,682), and the 680FF/980FF mean temperatures 0.4 K above their floors.
 
 ### Software acceptance criteria (Normative Annex A3)
 
-The standard's acceptance criteria are a separate, narrower test than the gate above. They define five test groups. Each group is a set of range cases (a single result, or the difference between two cases) and passes when enough of them fall in range. Scored from the v0.7.0 submission spreadsheets in `results/`:
+The standard's acceptance criteria are a separate, narrower test than the gate above. They define five test groups (Annex A3, Tables A3-1 to A3-14). Each group is a set of range cases (a single result, or the difference between two cases) and passes when enough of them fall in range. Scored against the 140-2023 tables from the current results, which the spreadsheets in `results/` hold:
 
 | Test group | Submission file | In range | Needed |
 |---|---|---|---|
@@ -40,7 +42,7 @@ The standard's acceptance criteria are a separate, narrower test than the gate a
 
 These four files are what the IBPSA-USA Standard 140 portal takes. The cooling-equipment group is scored on the Section 9B cases, so `OpenBSE_Std140_CE_a_Output.xls` is not part of that submission.
 
-The gate's ranges for the equipment sections were derived in this repo from the standard's example results (see the `_provenance` notes in `acceptance_ranges_140_2023.json`). They are not the Annex A3 ranges, so passing the gate does not by itself mean passing Annex A3.
+The gate's ranges are not the Annex A3 ranges: the equipment ranges were derived in this repo from the standard's example results (see the `_provenance` notes in `acceptance_ranges_140_2023.json`), and the Section 7 ranges bound absolute loads and temperatures where Annex A3 also ranges the differences between cases. Passing the gate does not by itself mean passing Annex A3.
 
 ## Running Tests
 
@@ -65,7 +67,7 @@ python3 140_tests/scripts/build_140_csv.py
 
 ```
 cases/              96 YAML input files (ashrae140_case*.yaml), plus two scratch variants
-weather/            Prescribed weather data for each section
+weather/            Normative weather for Sections 10 and 11 (converted) and the Section 7 source EPW
 reference_idfs/     EnergyPlus IDF files for cross-reference
 scripts/            Case generators, the gate, and submission generators
   build_140_csv.py    Reads the case outputs and compares them against the gate ranges
@@ -74,11 +76,17 @@ scripts/            Case generators, the gate, and submission generators
   solar_validation.py Solar calculation chain validation
 results/            Filled submission spreadsheets (OpenBSE_Std140_*_Output)
 acceptance_ranges_140_2023.json  Gate ranges and how each was derived
+conformance_spec.json            Specified input values per case (checked by a Rust test)
+CONFORMANCE.md                   Requirement-by-requirement conformance record
 ```
 
 ## Test Cases
 
 ### Section 7 — Thermal Fabric (27 cases)
+
+Walls, roofs and floors are the Standard's layered constructions; windows are
+layered double, low-e argon or single glazing. Every case uses geometric
+interior beam-solar distribution and four time steps per hour.
 
 | Case | Description |
 |------|-------------|
@@ -113,9 +121,14 @@ acceptance_ranges_140_2023.json  Gate ranges and how each was derived
 ### Section 9A — Cooling Equipment, Analytical Verification (CE100–CE200, 14 cases)
 
 A window-type DX unit in an adiabatic zone with constant internal gains and
-constant outdoor conditions, compared with the quasi-analytical solutions for
+constant outdoor dry-bulb, compared with the quasi-analytical solutions for
 February. Generated by `scripts/generate_ce_cases.py`; gated on 112 checks
-(8 metrics × 14 cases).
+(8 metrics × 14 cases). The weather files `cases/CE100A.csv`, `CE110A.csv`,
+`CE165A.csv` and `CE200A.csv` are the normative `CExxxA.TM2` files converted
+field for field by `scripts/convert_tm2_weather.py`: constant dry-bulb and dew
+point, with the files' hourly sky cover, wind, pressure and solar. The near-
+adiabatic shell (U = 0.01 W/(m²·K), thermal absorptance 0.9) exchanges long-wave
+radiation with that sky, as in the Standard's reference EnergyPlus input.
 
 | Cases | Outdoor / zone setpoint (°C) | Sensible / latent gain (W) |
 |-------|------------------------------|----------------------------|
@@ -136,7 +149,11 @@ with New Orleans weather (`CE300.csv`). Generated by
 `scripts/generate_ce_b_cases.py`; gated on 231 annual checks (11 metrics × 21
 result rows — CE500 is reported for the full year and for May–Sep, CE510 for
 May–Sep only). `scripts/generate_ashrae140_CE_b_submission.py` fills the
-portal template.
+portal template. The DX coil's capacity and EIR curves are tables of the
+normative performance map (`CE300MAP.xls`) on entering wet-bulb × outdoor
+dry-bulb, as for Section 9A; the reference EnergyPlus input's biquadratic fit
+covers 15.6–26.7 °C entering wet-bulb only, and the 500 series runs the coil
+down to about 8 °C.
 
 | Cases | What varies |
 |-------|-------------|
@@ -155,9 +172,12 @@ gate range for each metric is the spread of the six example programs widened by
 
 ### Section 10 — Heating Equipment (HE100–HE230, 11 cases)
 
-A fuel-fired furnace heating an adiabatic zone with constant infiltration to
-20 °C, run January–March. Generated by `scripts/generate_he_cases.py`; gated on
-48 checks.
+A fuel-fired furnace heating an adiabatic zone to 20 °C, run January–March.
+The heat loss is constant infiltration giving a total UA of 199.953 W/K (the
+Standard's method for programs without user-set convection coefficients). The
+weather is the normative WYEC2 files, converted by
+`scripts/convert_wy2_weather.py`. Generated by `scripts/generate_he_cases.py`;
+gated on 48 checks.
 
 | Cases | What varies |
 |-------|-------------|
@@ -174,9 +194,11 @@ A fuel-fired furnace heating an adiabatic zone with constant infiltration to
 
 Adiabatic zones with imposed sensible and latent loads, served by air handlers
 with outdoor-air mixing. Results are steady state: the last simulated hour is
-compared with the quasi-analytical solution. Generated by
-`scripts/generate_ae_cases.py` and `scripts/generate_ae_reheat_cases.py`; gated
-on 96 checks (coil loads, 4 per case).
+compared with the quasi-analytical solution. The ambient conditions are the
+normative AE10x TMY2 files, converted by `scripts/convert_tm2_weather.py`.
+Generated by `scripts/generate_ae_cases.py` and
+`scripts/generate_ae_reheat_cases.py`; gated on 96 checks (coil loads, 4 per
+case).
 
 | Cases | System |
 |-------|--------|

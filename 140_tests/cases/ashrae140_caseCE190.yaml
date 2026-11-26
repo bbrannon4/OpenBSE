@@ -35,6 +35,7 @@ equipment:
   - name: CE190 Internal Load
     zones: [CE190 Zone]
     power: 820.0
+    fuel: none
     radiant_fraction: 0.0
     latent_fraction: 0.670732
 

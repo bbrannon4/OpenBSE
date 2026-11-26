@@ -21,8 +21,14 @@ block take effect only in HVAC-only mode, and a warning says so.
 
 **Thermostats.** A thermostat gives a set of zones a heating and a cooling
 setpoint. A `thermostat_schedule` overrides these by hour (1–24), optionally
-within a date range. The first entry that applies wins. The scheduled setpoints
-drive the mode, the load to setpoint and the coil control alike.
+within a date range. The first entry that applies wins. Named setpoint
+schedules (`heating_setpoint_schedule`, `cooling_setpoint_schedule`) instead set
+each side every timestep from a schedule of temperatures, read by hour and day
+type, holidays included, as EnergyPlus `ThermostatSetpoint:DualSetpoint`; a
+thermostat takes one form or the other. The scheduled setpoints drive the mode,
+the load to setpoint, the coil control and unmet hours alike. Design days hold
+their own setpoints (`design_day_*_setpoints`, @sec-dd-runs) and set the
+schedules aside.
 
 **Mode.** A zone's mode comes from the predictor (@sec-predictor) and is held for
 the timestep. It is heating below the heating setpoint, cooling above the cooling
@@ -37,27 +43,59 @@ falling back to the next), from arrays or `"value until HH:MM"` strings. Optiona
 seasons override them by date range. Hour $h$ covers the hour ending at $h$. An
 `until` boundary inside an hour gives that hour the time-weighted average of the
 values it spans, which keeps the schedule's integral. A string must reach 24:00.
-Values are fractions: anything outside 0 to 1 is clamped, with a validation warning.
-A reference to an undefined schedule is a severe error.
+Values are fractions: anything outside 0 to 1 is clamped, with a validation warning,
+except in a thermostat's setpoint schedules, which hold temperatures and are read
+unclamped. A reference to an undefined schedule is a severe error.
 
 The day of week starts from the weather file's January 1. A file containing
 29 February has that day dropped, because the simulation calendar has 365 days,
 but later dates keep their true day of week.
 
 **Comparison with EnergyPlus.** EnergyPlus's `ZoneControl:Thermostat` takes
-setpoint schedules, which are its only mechanism; OpenBSE's thermostat schedules
-are separate from its named schedules. Schedules have no design-day types, daylight saving or
-start day of week ([#199](https://github.com/bbrannon4/OpenBSE/issues/199)).
+setpoint schedules, as OpenBSE's named setpoint schedules do. Schedules have no
+design-day types, so a design day's setpoints are given on the thermostat.
+Daylight saving shifts every schedule as in EnergyPlus (@sec-calendar); there
+is no start-day-of-week input
+([#199](https://github.com/bbrannon4/OpenBSE/issues/199)).
 
 ## Availability {#sec-availability}
 
 A loop whose `availability_schedule` is below 0.5 for the hour is off. Its
-components report zero, and its zones float. There is no night cycle:
+components report zero, and its zones float, unless a night-cycle manager runs it.
 `unoccupied_heating_setpoint` and `unoccupied_cooling_setpoint` are read and never
 used, and the code for them is dead
-([#255](https://github.com/bbrannon4/OpenBSE/issues/255)). EnergyPlus's
-`AvailabilityManager:NightCycle`, which the DOE prototypes use, restarts the
-system when a zone leaves its setback range.
+([#255](https://github.com/bbrannon4/OpenBSE/issues/255)); a thermostat's setpoint
+schedules carry a setback (@sec-thermostats).
+
+**Night cycle.** A loop's `night_cycle` (EnergyPlus `AvailabilityManager:NightCycle`
+with FixedRunTime, `CalcNCycSysAvailMgr`) runs it while its schedule has it off.
+At each timestep, with the zone air temperatures at the start of the timestep
+$T_z$ and the setpoints now, the loop cycles on when a watched zone (any zone it
+serves, or its control zone) has
+
+$$
+T_z < T_h - \tfrac12\,\Delta T_\text{tol} \quad\text{or}\quad T_z > T_c + \tfrac12\,\Delta T_\text{tol},
+$$ {#eq-night-cycle}
+
+with $\Delta T_\text{tol}$ the thermostat tolerance (half of it under FixedRunTime,
+as E+). It then runs for the cycling run time rounded to whole timesteps,
+$n = \operatorname{round}(t_\text{run}\, N_h / 3600)$, whatever the zones do, is
+held off for the timestep after, and is checked again on the next. While it runs
+the fan cycles with the coils, as E+ runs a unit whose fan operating-mode schedule
+is its availability schedule, and outdoor air
+follows `minimum_oa_schedule`. The cycle restarts when the schedule turns the loop
+on.
+
+**High-temperature turn-off.** A loop's `high_temperature_turn_off` turns it off
+while the outdoor dry-bulb is above that temperature, whatever its schedule or
+night cycle say (E+ `AvailabilityManager:HighTemperatureTurnOff` sensing the
+outdoor air node), as an entry heater locked out in mild weather.
+
+**Comparison with EnergyPlus.** The control types CycleOnAny and
+CycleOnControlZone and the FixedRunTime run time are E+'s; the Thermostat and
+ThermostatWithMinimumRunTime run times, the zone-fan-only types and an
+applicability schedule are not modelled. E+ restarts the run-time count at the
+start of each warmup day; OpenBSE clears it when warmup ends.
 
 ## Part-load cycling {#sec-plr}
 
@@ -67,59 +105,167 @@ PSZ-AC, PTAC and PTHP loops simulate their components at full flow, then find th
 loop part-load ratio from the zone load, and scale the outputs by it. From the
 supply state, with $T_\text{ref} = \min(T_h, T_z)$ in heating and
 $\max(T_c, T_z)$ in cooling, the net capacity is
-$\dot Q_\text{cap} = \dot mc_p|T_\text{sup} - T_\text{ref}|$. Then
+$\dot Q_\text{cap} = \dot mc_p|T_\text{sup} - T_\text{ref}|$, with $\dot m$ the control
+zone's share of the supply: all of it for a single-zone unit, and for a PSZ-AC its
+design flow over the sum of its zones' design flows, as E+ `UnitarySystem` divides
+the control zone's load by its `ControlZoneMassFlowFrac`. Then
 
 $$
 x = \begin{cases}
-\dfrac{\dot Q_h - \dot Q_f}{\dot Q_\text{cap} - \dot Q_f} & \text{heating},\\[2ex]
+\dfrac{\dot Q_h - \dot Q_f - \dot Q_\text{oa}}{\dot Q_\text{cap} - \dot Q_f - \dot Q_\text{oa}} & \text{heating},\\[2ex]
 \dfrac{\dot Q_c + \dot Q_f + \dot Q_\text{oa}}{\dot Q_\text{cap} + \dot Q_f + \dot Q_\text{oa}} & \text{cooling},
 \end{cases}
 $$ {#eq-plr}
 
-clamped to $[x_\text{min}, 1]$. The terms are:
+clamped to $[0, 1]$. The terms are:
 
 - $\dot Q_h$ and $\dot Q_c$, the zone's loads to setpoint;
 - $\dot Q_f$, the heat of a continuous fan, which arrives in the off-cycle too;
 - $\dot Q_\text{oa} = x_\text{oa}\dot mc_p(T_o - T_z)$, the outdoor-air load in
-  the off-cycle of a continuous fan, zero for a cycling fan;
-- $x_\text{min}$, the minimum outdoor-air fraction for a cycling fan and 0 for a
-  continuous one.
+  the off-cycle of a continuous fan, zero for a cycling fan.
+
+A cycling fan runs only for $x$ of the timestep, so with no load it is off and its
+outdoor air with it; a continuous fan moves its outdoor air all the time.
 
 If the load is under 10 W, a proportional fallback applies:
 $x = |T_\text{sp} - T_z|/|T_\text{sup} - T_\text{sp}|$. If the zone started the
-timestep more than half the deadband beyond the setpoint on the far side, the
-output is $x_\text{min}$.
+timestep more than half the deadband beyond the setpoint on the far side, or the
+unit has no equipment that heats or cools as the mode needs (a heating-only unit
+when the zone wants cooling), the output is 0.
 
 **Scaling.** Coil and fan outputs and flows scale by $x$. DX compressors and
 condenser fans take the cycling penalty of @eq-dx-rtf at their combined part load,
 and the cycling fan of a loop with DX runs $x/\text{PLF}(x)$ of the time while a
 compressor runs (@sec-dx-cooling). Continuous fans stay at full power.
-`ContinuousNoLoadOff` fans stop in deadband.
+A `ContinuousNoLoadOff` fan runs at full flow for the whole timestep whenever
+its zone has a load the unit can meet, its coils cycling, and its off-cycle air
+(recirculated air and outdoor air with the fan's heat) reaches the zone as a
+continuous fan's does; with no load it stops. This is E+ `ZoneHVAC:UnitHeater`
+with Fan Operation During No Heating = No (fan on, coil meeting the load, even a
+load the fan's heat alone covers) and a PTAC with no no-load flow.
 
-A zone in its dead band calls for cooling when the heat of a continuous fan,
-$\dot Q_f$, exceeds the load the zone can still take before its cooling setpoint,
-$Q_{\text{to},c} \ge 0$. Its load is then $\dot Q_f - Q_{\text{to},c}$, as in E+
-`UnitarySystem` ("constant fan pushes zone above cooling set point"). The heating
-side of that E+ test is not implemented: it applies when cold outdoor air makes the
-fan-only output negative.
+**No-load output.** With the coils off, a continuous fan still supplies its heat
+and its minimum outdoor air: $\dot Q_\text{off} = \dot Q_f + \dot Q_\text{oa}$,
+positive when it heats the zone. In @eq-plr it is delivered whether the coils run
+or not, so the coils make up only the rest, for heating as for cooling. A zone in
+its dead band, with signed loads to its setpoints $Q_{\text{to},h} < 0$ and
+$Q_{\text{to},c} > 0$, is pushed out of it by that output, as in E+
+`UnitarySystem::initLoadBasedControl` (DualHeatCool):
+
+- cold outdoor air with $\dot Q_\text{off} < 0$ and
+  $\dot Q_\text{off} - Q_{\text{to},h} < -1$ W ("constant fan pushes zone below
+  heating set point") turns on heating, for the load $Q_{\text{to},h}$;
+- fan heat with $\dot Q_\text{off} > 0$ and $\dot Q_\text{off} - Q_{\text{to},c} > 1$ W
+  ("above cooling set point") turns on cooling, for the load $Q_{\text{to},c}$.
+
+The mode is decided once per timestep from the design flow, the minimum
+outdoor-air fraction and the zone at the start of the timestep.
 
 **Comparison with EnergyPlus.** EnergyPlus's `AirLoopHVAC:UnitarySystem` solves
 its part-load ratio iteratively against the unit's output; @eq-plr is its closed
-form. EnergyPlus has zero flow with a cycling fan and no load, where
-$x_\text{min}$ keeps the fan on, and a small load is met without a floor
-([#256](https://github.com/bbrannon4/OpenBSE/issues/256)). PSZ-AC serves several
-zones evenly, controlled by the first
-([#256](https://github.com/bbrannon4/OpenBSE/issues/256)).
+form. As in EnergyPlus, a cycling fan has zero flow with no load
+(`Fan:OnOff` with a cycling UnitarySystem), and a small load is met with a small
+part load. A PSZ-AC serving several zones is controlled by the first and splits its
+supply and return air by the zones' design flows, as E+ splits a unitary system's air
+by its terminals' maximum flows.
+
+## Multi-speed packaged units {#sec-unitary-speeds}
+
+**Source:** `openbse-cli/src/unitary.rs` (`simulate_unitary`).
+
+A PSZ-AC loop with a multi-speed DX coil (@sec-dx-multispeed), or a
+`no_load_flow_fraction` or `heating_flow_fraction` below 1, runs as E+
+`AirLoopHVAC:UnitarySystem` with `UnitarySystemPerformance:Multispeed` and a
+`Fan:SystemModel`. It has a few operating points $j$, each its components run
+at one supply flow with the coils in one state:
+
+- **off**: the coils off, at the no-load flow if the fan keeps running, no flow
+  if it cycles;
+- **heating**: the heating coil at the heating supply temperature, at the
+  heating flow;
+- **cooling speed $k$**: the DX coil at full output at speed $k$, at that
+  speed's flow.
+
+At each point the minimum outdoor air is a fixed flow (E+ `Controller:OutdoorAir`
+FixedMinimum), a larger share of a smaller supply; an open economizer keeps its
+share. The point's sensible output to the control zone is
+$\dot Q_j = s\,\dot m_jc_p(T_{\text{sup},j} - T_z)$, with $T_z$ the zone at the start of
+the timestep and $s$ the control zone's share of the supply. The timestep is
+split between two points so their time-weighted output meets the zone load $L$
+(E+ `UnitarySys::controlUnitarySystemtoLoad`):
+
+$$
+r = \frac{L - \dot Q_a}{\dot Q_b - \dot Q_a}, \qquad
+\bar X = (1 - r)\,X_a + r\,X_b,
+$$ {#eq-unitary-mix}
+
+with $r$ clamped to $[0, 1]$:
+
+- heating: $a$ off, $b$ heating;
+- cooling up to speed 1: $a$ off, $b$ speed 1, the compressor's electricity
+  taking $r/\text{PLF}(r)$ instead of $r$ (@eq-dx-rtf);
+- cooling above speed 1: $a$ and $b$ two adjacent speeds, no cycling penalty;
+- dead band: off alone.
+
+Rates and flows $X$ (power, fuel, thermal output, mass flow) mix by
+@eq-unitary-mix; each component's inlet and outlet states, and the supply air,
+mix by mass (enthalpy and humidity ratio), so $\dot m\Delta h$ of the mix is
+the mixed thermal output. A fan's power follows its speeds (@eq-fan-speeds) at
+each point's flow.
+
+**Continuous fan.** A fan that keeps running delivers the off point's output
+$\dot Q_\text{off}$ whatever the coils do, so the load $L$ is the signed load
+to the setpoint of the unit's mode, $Q_{\text{to},h}$ in heating and
+$Q_{\text{to},c}$ in cooling (E+ `ZoneLoad`). A heating mode whose zone needs
+no heat ($Q_{\text{to},h} < 0$, internal gains carrying it) therefore heats only
+as much as keeps the cold outdoor air from taking the zone below its setpoint,
+and none if it would not. The off point's output also moves the zone between
+modes, as E+ `UnitarySystem::initLoadBasedControl` (DualHeatCool) does in
+every zone state:
+
+- with a cooling load ($Q_{\text{to},h} < 0$, $Q_{\text{to},c} < 0$):
+  $Q_{\text{to},h} - \dot Q_\text{off} > 1$ W turns on heating for
+  $Q_{\text{to},h}$; else $Q_{\text{to},c} - \dot Q_\text{off} > 1$ W leaves no
+  load (off alone);
+- with a heating load (both positive): $\dot Q_\text{off} - Q_{\text{to},c} > 1$ W
+  turns on cooling for $Q_{\text{to},c}$; else $\dot Q_\text{off} -
+  Q_{\text{to},h} > 1$ W leaves no load;
+- in the dead band: as in @sec-plr.
+
+**Comparison with EnergyPlus.** EnergyPlus iterates the cycling and speed
+ratios against the unit's output; @eq-unitary-mix is the same split in closed
+form, from outputs measured at the start-of-timestep zone temperature. The
+heating coil is single-stage (one heating flow). E+'s `SingleMode` operation
+and multi-speed heating coils are not modelled.
 
 ## PSZ-AC {#sec-psz}
 
 **Source:** `build_psz_signals`.
 
-**Coils.** In heating, the coil aims at the heating supply temperature. With
-`cycling: proportional`, it aims at
-$T_h + (T_{s,h} - T_h)\min(e/5, 1)$ from the temperature error $e$ at the start of
-the timestep, which leaves a steady offset. In cooling, the coil runs at full
-capacity. Part load comes from @sec-plr.
+**Coils.** In cooling, the coil runs at full capacity. In heating, the coil aims at
+the heating supply temperature $T_{s,h}$, except in two cases. With `cycling:
+modulating` (the default), a continuous fan and a gas, electric or water heating
+coil (no heat-pump coil), the coil aims at the supply temperature that delivers
+the control zone's load $\dot Q_h$ to its setpoint $T_h$ with that zone's share of
+the flow $\dot m_z$,
+
+$$
+T_\text{coil} = \min\left(T_h + \frac{\dot Q_h}{\dot m_z c_p(W_z)} - \Delta T_f,\ T_{s,h}\right),
+$$ {#eq-psz-modulating}
+
+less the draw-through fan rise $\Delta T_f$, and runs the whole timestep. With
+`cycling: proportional`, it aims at $T_h + (T_{s,h} - T_h)\min(e/5, 1)$ from the
+temperature error $e$ at the start of the timestep, which leaves a steady offset.
+Otherwise part load comes from @sec-plr: a cycling fan, or a heat-pump coil, runs
+the unit at full output for the fraction of the timestep that meets the load.
+
+**Comparison with EnergyPlus.** `modulating` is the load control of E+'s
+`AirLoopHVAC:UnitarySystem`: with a cycling fan (`Fan:OnOff`, fan operating mode
+0) the unit runs at full output for its part-load ratio; with a continuous fan a
+fuel, electric or water heating coil runs at part load, so the supply temperature
+meets the load ($Q_\text{ZnReq}$ over the control zone's flow fraction), while a
+single-speed heat-pump coil still cycles its compressor. `on_off` cycles in every
+case. `proportional` has no E+ counterpart.
 
 **Single-zone reset.** With a `SingleZone` supply-temperature reset (E+
 `SetpointManager:SingleZone:Heating` and `:Cooling`), the loop does not cycle. The
@@ -130,9 +276,26 @@ T_{s,h} = \operatorname{clamp}\left(T_h + \frac{\dot Q_h}{\dot mc_p},\ T_\text{m
 T_{s,c} = \operatorname{clamp}\left(T_c - \frac{\dot Q_c}{\dot mc_p},\ T_\text{min},\ T_\text{max}\right) - \Delta T_f,
 $$ {#eq-single-zone-sat}
 
-with the fan rise $\Delta T_f$ removed, as the fan is downstream of the coils. A
+with the fan rise $\Delta T_f$ removed for a coil the fan is downstream of
+(draw-through); a coil downstream of the fan (blow-through) aims at the supply
+temperature itself, its air already carrying the fan's heat. The economizer aims
+the mixed air at the cooling supply temperature less $\Delta T_f$ wherever the
+fan sits, so with a blow-through fan it lands one fan rise below the cooling
+coil's setpoint. Both follow E+'s `SetpointManager:MixedAir`, which takes off the
+rise of a fan between its node and the reference node. A
 variable-speed fan first turns the flow down, between its minimum and design, with
 cooling at the coldest supply temperature (E+ PSZ-VAV).
+
+**Comparison with EnergyPlus.** An E+ `AirLoopHVAC:UnitarySystem` with
+`SingleZoneVAV` control (`SZVAVModel.cc`) places a load in its three regions by
+boundary loads that, without an air-terminal mixer, it takes from the unit's
+inlet (mixed-air) temperature rather than the zone's,
+$\dot m_\text{min}(h(T_\text{min}) - h(T_\text{inlet}))$. When an economizer
+has brought the mixed air to within a fan rise of $T_\text{min}$, both boundary
+loads fall to a few kilowatts, any real load lands in region 3, and the unit runs
+at maximum flow with its coil over-delivering, overcooling the zone. OpenBSE's
+unit meets the load and does not reproduce that
+([#497](https://github.com/bbrannon4/OpenBSE/issues/497)).
 
 The economizer is in @sec-economizer.
 
@@ -144,13 +307,17 @@ The economizer is in @sec-economizer.
 cooling zone at its design flow (E+ `SetpointManager:Warmest`):
 
 $$
-T_s = \operatorname{clamp}\left(\min_z\left(T_z - \frac{\dot Q_{c,z}}{\dot m_{d,z}c_p}\right),\ T_{s,\text{min}},\ 15.6\right),
+T_s = \operatorname{clamp}\left(\min_z\left(T_z - \frac{\dot Q_{c,z}}{\dot m_{d,z}c_p}\right),\ T_{s,\text{min}},\ T_{s,\text{max}}\right),
 $$ {#eq-warmest}
 
-over zones in cooling with over 100 W of load, and starting from 15.6 °C. With
+over zones in cooling with over 100 W of load, and starting from $T_{s,\text{max}}$.
+$T_{s,\text{min}}$ is the loop's `cooling_supply_temp` and
+$T_{s,\text{max}} = \max(15.6\ °\text{C},\ T_{s,\text{min}})$. With
 `fixed_cooling_sat`, it is the fixed supply temperature. Each coil aims at $T_s$,
 less the fan's rise if the fan is downstream, which scales with the square of the
-flow fraction. A preheat coil can hold a fixed setpoint.
+flow fraction. The design rise is $\Delta T_f = \Delta p\,f_m/(\eta\,\rho_\text{std}\,c_p)$,
+with $f_m$ the share of motor power that reaches the air and $\rho_\text{std}$ the site's
+standard density, as E+ fan power uses `StdRhoAir`. A preheat coil can hold a fixed setpoint.
 
 **Zone flows.** In cooling, each zone takes
 $\dot Q_c/[c_p\max(T_z - T_s, 1)]$, between its box's minimum and design flow. In
@@ -160,6 +327,18 @@ then just enough flow to carry it at that temperature, up to the box's heating
 maximum. A zone without a sized box takes a fraction rising to 0.5 over a 5 K
 error. The fan's flow is the total, and each box passes the flow allocated to its
 zone, so the fan and coils carry exactly what the boxes deliver.
+
+**Fixed cold deck.** With `fixed_cooling_sat` (terminal reheat), a cooling zone
+whose load needs at least its minimum flow at the deck temperature modulates
+flow with no reheat. Otherwise the box holds its minimum flow and reheats as E+
+`SimVAV` does (@eq-vav-reheat): the load to the heating setpoint plus warming
+the minimum flow to the zone, never below zero. A zone in deadband therefore
+drifts down on the cold minimum flow to its heating setpoint, where the reheat
+holds it; a constant-volume box (minimum fraction 1) always takes this branch.
+A zone with a single setpoint (heating = cooling, as the ASHRAE 140 AE300/AE400
+cases) is trimmed to the supply temperature that holds it there,
+$T_\text{set} - (\dot Q_c - \dot Q_h)/(\dot m_\text{min}c_p)$, the same reheat at
+steady state.
 
 **Outdoor air.** The minimum follows the ASHRAE 62.1 ventilation rate procedure
 [@ashrae621]:
@@ -173,14 +352,26 @@ Y_s = \frac{V_{ou}/E_v}{V_{ps}},
 $$ {#eq-vrp}
 
 with $V_{oz}$ the zone requirement at the occupants $P_z(t)$ of this hour, no less than the minimum fraction. A fixed
-`min_oa_flow` overrides it with a constant flow.
+`minimum_oa_flow` overrides it with a constant volume flow, converted to mass at the site's
+standard density, as every outdoor-air flow is (E+ `StdRhoAir`).
+
+**Exhaust.** On PSZ and VAV loops with an outdoor-air intake (a minimum outdoor
+air, a zone requirement or an economizer) the outdoor air is never less than the scheduled
+flow of the served zones' exhaust fans (at the site's standard density): the
+air a zone exhausts is made up through the loop, as E+ `Controller:OutdoorAir`
+keeps the outdoor air at least the loop's zone exhaust ("Do not allow OA to be
+below Exh", `MixedAir.cc`). E+ measures that exhaust as supply minus return
+flow; OpenBSE takes the exhaust fans' scheduled flow, which is the same for
+zones without other unbalanced flows. A loop without an intake makes up none,
+as in E+, where only `Controller:OutdoorAir` does; the zone then loses the
+exhaust to infiltration.
 
 **Comparison with EnergyPlus.** @eq-warmest and @eq-vrp follow
 `SetpointManager:Warmest` and `Controller:MechanicalVentilation` with
 `VentilationRateProcedure` [@eplus-engref-25-2, "Outdoor Air System"]. OpenBSE's
-maximum temperature and maximum heating fraction are hard-coded, and a higher
-minimum makes the clamp panic
-([#256](https://github.com/bbrannon4/OpenBSE/issues/256)). @eq-vrp reads the zone's
+maximum temperature (15.6 °C) and maximum heating fraction (0.5) are not inputs;
+E+ takes both from the setpoint manager and terminal
+([#388](https://github.com/bbrannon4/OpenBSE/issues/388)). @eq-vrp reads the zone's
 `outdoor_air`, the same requirement sizing uses, with its absolute and ACH terms and
 combining method and every People object's schedule, as E+ reads
 `DesignSpecification:OutdoorAir`. A zone without `outdoor_air` uses the `per_person_oa`
@@ -224,8 +415,9 @@ fan's rise.
 
 **Heat recovery.** Heat recovery (@sec-heat-recovery) treats the outdoor air before
 it mixes, and its exhaust is the return air. It stops while the economizer is open.
-With a supply setpoint, its outlet aims to land the mixed air on the target (E+
-`OutdoorAirPretreat`).
+With a supply setpoint, its outlet aims to land the mixed air on the economizer's
+mixed-air target, the supply setpoint less the fan's rise at the current flow, which
+is also what the coils aim at (E+ `OutdoorAirPretreat` with `SetpointManager:MixedAir`).
 
 **Comparison with EnergyPlus.** The limits and @eq-economizer follow
 `Controller:OutdoorAir` [@eplus-engref-25-2, "Outdoor Air System"]. The return
@@ -236,15 +428,18 @@ mixer does.
 
 **Source:** `build_doas_signals`.
 
-A DOAS loop supplies 100% outdoor air at 30% of the served zones' design flow, with
-a 0.05 kg/s floor. Its heating coil aims at the highest heating setpoint plus 2 K,
-and its cooling coil at the lowest cooling setpoint minus 2 K (at least 14 °C), each
-only if the outdoor air needs it.
+A DOAS loop always runs, supplying 100% outdoor air at its fan's design flow. An
+autosized fan takes the sum of the served zones' `outdoor_air` requirements, and a
+DOAS loop with neither is a severe error. The zones share the air in proportion to
+their requirements. The heating coil aims at the loop's `heating_supply_temp`, and
+the cooling coil at its `cooling_supply_temp` (after any supply-temperature reset),
+each less the rise of a supply fan downstream of the coils and each only if the
+outdoor air needs it. Coil sizing uses the same flow and targets.
 
 **Comparison with EnergyPlus.** An EnergyPlus DOAS takes its flow from the zones'
-`DesignSpecification:OutdoorAir` and its temperatures from setpoint managers. In
-OpenBSE, neither the zones' outdoor air nor the loop's supply temperatures are read
-([#256](https://github.com/bbrannon4/OpenBSE/issues/256)).
+`DesignSpecification:OutdoorAir` and its temperatures from setpoint managers, as
+here. The loop's supply-temperature controls have no DOAS-specific defaults, so a
+DOAS should state both; otherwise it heats to the general 35 °C default.
 
 ## Other systems {#sec-other-systems}
 
@@ -267,21 +462,55 @@ $$ {#eq-oa-reset}
 
 for cooling supply air, heating supply air and plant loops alike.
 
-**Demand reset.** A cooling supply temperature moves down by `step` if the highest
-zone "PLR" is at least 0.95, and otherwise up. Heating goes the opposite way. It
-runs each HVAC iteration, and its PLR is the cooling load over five times the zone
-air's capacitance rate
-([#256](https://github.com/bbrannon4/OpenBSE/issues/256)).
+**Demand reset.** Once per timestep, a cooling supply temperature moves down by
+`step` if the most loaded zone's part load is at least 0.95, and otherwise up, within
+$[T_\text{min}, T_\text{max}]$; a heating supply temperature goes the opposite way.
+The part load is how far the zone's box would open to meet the predictor's load at
+the supply temperature the timestep started with,
 
-**Plant.** A plant loop's reset reaches only the loop's return estimate
-(@sec-plant-loop, [#251](https://github.com/bbrannon4/OpenBSE/issues/251)).
+$$
+\text{PLR}_z = \frac{\dot Q_z}{\dot m_{d,z}c_p\max(|T_s - T_{\text{sp},z}|,\ 1)},
+$$ {#eq-demand-reset-plr}
+
+with the cooling load and setpoint for a cooling reset and the heating ones for a
+heating reset.
+
+**Comparison with EnergyPlus.** E+ has no stepping demand reset;
+`SetpointManager:WarmestTemperatureFlow` reads the same box positions but sets the
+supply temperature directly each timestep. The stepped reset is a common building
+automation sequence (ASHRAE Guideline 36 trim and respond), here with one request
+level and no ignore count.
+
+**Return-temperature reset.** A plant loop can instead reset its supply to hold
+a return-water temperature $T_\text{ret}^*$. Each timestep it reads the supply
+side's return and supply temperatures at the end of the last timestep
+(@eq-plant-state) and sets
+
+$$
+T_\text{sp} = \operatorname{clamp}\!\left(T_\text{ret}^* \mp (T_\text{ret} - T_\text{sup}),\ T_\text{min},\ T_\text{max}\right),
+$$ {#eq-return-reset}
+
+minus for chilled water (a loop whose design supply is below $T_\text{ret}^*$),
+plus for hot water, where for hot water $T_\text{ret} - T_\text{sup}$ is
+negative. With no flow last timestep, or water returning on the wrong side of the
+supply, the setpoint holds the design end of its range, $T_\text{min}$ for chilled
+water and $T_\text{max}$ for hot water.
+
+**Plant.** A plant loop's setpoint, reset included, reaches its coils, its
+chillers' curves and leaving-setpoint boilers (@sec-plant-loop).
+
+**Comparison with EnergyPlus.** @eq-oa-reset is `SetpointManager:OutdoorAirReset`.
+@eq-return-reset is `SetpointManager:ReturnTemperature:ChilledWater` and
+`:HotWater` (`SPMReturnWaterTemp::calculate`) with a constant target, which also
+read the last values of the loop's supply outlet and inlet nodes; the return
+temperature is the supply side's inlet, the coils' return mixed with any bypass
+or common-pipe water (@eq-plant-supply-flow). A scheduled target is not an input.
 
 ## Known limitations {#sec-controls-limitations}
 
-- [#255](https://github.com/bbrannon4/OpenBSE/issues/255): no night cycle;
-  unoccupied setpoints unused.
-- [#256](https://github.com/bbrannon4/OpenBSE/issues/256): DOAS flow and
-  temperatures; VAV hard-coded limits and clamp panic; demand reset per iteration;
-  cycling runtime floor; multi-zone PSZ.
-- [#199](https://github.com/bbrannon4/OpenBSE/issues/199): no daylight saving or
-  start day of week.
+- [#255](https://github.com/bbrannon4/OpenBSE/issues/255): unoccupied
+  setpoints are read and never used.
+- [#388](https://github.com/bbrannon4/OpenBSE/issues/388): VAV Warmest maximum
+  and no-box heating fraction are not inputs.
+- [#199](https://github.com/bbrannon4/OpenBSE/issues/199): no
+  start-day-of-week input.

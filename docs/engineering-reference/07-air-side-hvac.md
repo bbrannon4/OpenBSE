@@ -42,6 +42,23 @@ The default coefficients are $(0.0407599,\ 0.0880450,\ -0.0729636,\
 0.9437398,\ 0)$. An `on_off` fan uses @eq-fan-cv. It cycles through the flow
 the loop controls give it (@sec-controls).
 
+**Discrete speeds.** A constant-volume or on/off fan with `speeds` (E+
+`Fan:SystemModel`, Speed Control Method Discrete) has, for each speed $k$, a
+flow fraction $f_k$ and an electric power fraction $p_k$ of design, ascending.
+With the design power $P_d = \dot V_d\,\Delta p/\eta_t$ and the flow fraction
+$x = \dot m/(\rho\dot V_d)$,
+
+$$
+\frac{P}{P_d} = \begin{cases}
+p_1\,x/f_1 & x \le f_1,\\
+p_k + (p_{k+1} - p_k)\dfrac{x - f_k}{f_{k+1} - f_k} & f_k < x \le f_{k+1},\\
+p_N\,x/f_N & x > f_N.
+\end{cases}
+$$ {#eq-fan-speeds}
+
+Between two speeds the fan runs part of the time at each, so its power is
+linear in flow between them; below the lowest speed it cycles at that speed.
+
 **Heat to the air.** The shaft power is $\eta_mP$. All of it, plus the
 fraction $f_\text{mot}$ of the motor loss, heats the air:
 
@@ -64,6 +81,9 @@ $$ {#eq-fan-heat}
 - **Coefficients.** The EnergyPlus examples use $c_3 = -0.07292612$.
 - **On/off fans.** `Fan:OnOff` has power-ratio curves and takes the coil's
   runtime fraction. OpenBSE's on/off fan is the constant-volume fan.
+- **Discrete speeds.** @eq-fan-speeds is `Fan:SystemModel`'s discrete
+  control: power fraction at each speed, time-weighted between speeds. Its
+  continuous control (a power curve of flow) is the VAV fan here.
 
 ## ASHRAE 205 fans {#sec-fan-a205}
 
@@ -199,7 +219,8 @@ out of reach is a warning here where E+ stops sizing.
 - Hot-water and chilled-water coils have no fouling, no `DetailedGeometry`
   model and no humidity-ratio control; a coil's water ΔT at design is its
   loop's, with no per-coil `Design Water Temperature Difference`.
-- Ducts have no inward (return-side) leakage; filed for later.
+- [#319](https://github.com/bbrannon4/OpenBSE/issues/319): ducts have no
+  inward (return-side) leakage.
 
 ## DX cooling coils {#sec-dx-cooling}
 
@@ -267,14 +288,18 @@ setpoint:
 
 $$
 \begin{gathered}
-\text{PLR} = \min\left(\frac{\dot m c_p(T_\text{in} - T_\text{sp})}{\text{SHR}\,\dot Q_\text{eff}},\ 1\right), \qquad
-T_\text{out} = T_\text{in} - \frac{\text{PLR}\,\text{SHR}\,\dot Q_\text{eff}}{\dot m c_p},\\
+\text{PLR} = \min\left(\frac{\dot m c_p(W_\text{in})(T_\text{in} - T_\text{sp})}{\text{SHR}\,\dot Q_\text{eff}},\ 1\right), \qquad
+T_\text{out} = T_\text{in} - \frac{\text{PLR}\,\text{SHR}\,\dot Q_\text{eff}}{\dot m c_p(W_\text{out})},\\
 W_\text{out} = W_\text{in} - \text{PLR}\left(W_\text{in} - W_{\text{out},f}\right), \qquad
 W_{\text{out},f} = W\!\left(T_\text{in},\ h_\text{in} - (1 - \text{SHR})\dot Q_\text{eff}/\dot m\right).
 \end{gathered}
 $$ {#eq-dx-plr}
 
-The delivered total is $\text{PLR}\,\dot Q_\text{eff}$. With
+The delivered total is $\text{PLR}\,\dot Q_\text{eff}$. The latent part leaves at
+the entering dry-bulb and the air is then cooled at $W_\text{out}$, so with
+$c_p(W_\text{out})$ the outlet enthalpy is exactly
+$h_\text{in} - \text{PLR}\,\dot Q_\text{eff}/\dot m$, as EnergyPlus sets the outlet
+from its enthalpy and humidity ratio (`PsyTdbFnHW`). With
 `autocalculate_shr: false`, the SHR is the rated one, and the latent part
 $\dot Q(1/\text{SHR} - 1)$ is removed as $\Delta W = \dot Q_\text{lat}/(\dot m h_g)$,
 with $h_g$ at the outlet temperature, whatever the entering humidity.
@@ -309,7 +334,7 @@ heat pumps in both modes.
 **Comparison with EnergyPlus.** @eq-dx-cap–@eq-dx-plr follow
 `Coil:Cooling:DX:SingleSpeed` (`DXCoils.cc`, `CalcCBF`, `CalcDoe2DXCoil`)
 [@eplus-engref-25-2, "Single-Speed Electric DX Air Cooling Coil"]. The
-differences are ([#237](https://github.com/bbrannon4/OpenBSE/issues/237)):
+differences are:
 
 - **Power.** @eq-dx-rtf is E+'s $P = \dot Q\,\text{EIR}\,\text{RTF}$
   (`CalcDoe2DXCoil`), with the PLR the unitary system gives the coil written
@@ -329,6 +354,34 @@ differences are ([#237](https://github.com/bbrannon4/OpenBSE/issues/237)):
   point.
 - **Condenser fan.** In EnergyPlus the single-speed coil's EIR includes the
   outdoor fan. $P_\text{cf}$ is OpenBSE's own addition.
+
+## Multi-speed DX cooling coils {#sec-dx-multispeed}
+
+**Source:** `openbse-components/src/cooling_coil.rs`
+(`CoolingCoilDXMultiSpeed`); unit control in `openbse-cli/src/unitary.rs`.
+
+A `dx_multispeed` coil (E+ `Coil:Cooling:DX:MultiSpeed`) has $N$ speeds, lowest
+capacity first. Each speed $k$ is a single-speed coil (@sec-dx-cooling) with
+its own rated capacity, SHR, COP and airflow and its curves (each speed may
+name its own, else the coil's): at full output its capacity and power follow
+@eq-dx-cap and its outlet state the bypass-factor method, as E+
+`CalcMultiSpeedDXCoilCooling` at one speed. Each speed also has a supply flow
+fraction $f_k$ of the unit's design flow (E+
+`UnitarySystemPerformance:Multispeed` Cooling Speed $k$ Supply Air Flow Ratio;
+default its rated airflow over the top speed's).
+
+A packaged single-zone unit runs the coil speed by speed (@sec-unitary-speeds):
+each speed at full output, cycling the lowest speed against off with its
+$\text{PLF}$, and between two adjacent speeds part of the time at each, with
+no cycling penalty (E+ "Apply Part Load Fraction to Speeds Greater than 1" =
+No). Outside such a unit the coil runs the lowest speed that reaches its
+setpoint, at part load, else the highest at full output.
+
+**Comparison with EnergyPlus.** Each speed's performance is the single-speed
+model above, with its differences. E+ mixes two speeds' outlet states and
+powers by the speed ratio, as the unit control here does; latent degradation,
+crankcase and basin heaters, evaporative condensers and waste heat are not
+modelled.
 
 ## Heat-pump heating coils {#sec-hp-heating}
 
@@ -388,7 +441,7 @@ E+'s do.
 @eq-hp-defrost, matches EnergyPlus's timed defrost (`CalcDXHeatingCoil`)
 with a defrost EIR modifier of 1 [@eplus-engref-25-2, "Single-Speed
 Electric Heat Pump DX Air Heating Coil"]. The differences are
-([#237](https://github.com/bbrannon4/OpenBSE/issues/237)):
+([#357](https://github.com/bbrannon4/OpenBSE/issues/357)):
 
 - **Part load.** The PLF is the loop's linear $C_d$; the coil has no PLF
   curve input.
@@ -449,8 +502,6 @@ or over-deliver
   mode E+ lacks (documented above).
 - [#72](https://github.com/bbrannon4/OpenBSE/issues/72): Standard 205 DX
   coil never cycles below its minimum sequence; staging snaps.
-- [#57](https://github.com/bbrannon4/OpenBSE/issues/57): the same curve
-  conventions in VRF (@sec-zone-equipment).
 
 ## Chilled-water cooling coils {#sec-chw-coil}
 
@@ -524,9 +575,12 @@ DetailedAnalysis part-wet iteration.
 
 **Source:** `openbse-components/src/heat_recovery.rs` (`HeatRecovery`).
 
-An enthalpy wheel or a plate exchanger transfers heat, and for the wheel
+An enthalpy wheel (`source: wheel`), a plate exchanger (`plate`) or a
+runaround coil loop (`runaround_coil`) transfers heat, and for the wheel
 moisture, from the exhaust air at $(T_x, W_x)$ to the outdoor air entering
-it. The driver sets the exhaust state from the return air each timestep.
+it. The plate and the runaround loop are sensible-only: a
+`latent_effectiveness` on them is a severe input error, as is any other
+`source`. The driver sets the exhaust state from the return air each timestep.
 Let:
 
 - $C_s = \dot m c_p$ be the supply capacity rate;
@@ -534,7 +588,8 @@ Let:
   $C_\text{min} = rC_s$;
 - $\varepsilon_s$ be the sensible effectiveness, or the separate cooling
   effectiveness when $T_\text{in} > T_x$;
-- $\varepsilon_l$ be the latent effectiveness (zero for a plate exchanger).
+- $\varepsilon_l$ be the latent effectiveness (zero for a plate exchanger or
+  runaround loop).
 
 Then
 
@@ -560,6 +615,10 @@ differences are ([#345](https://github.com/bbrannon4/OpenBSE/issues/345)):
 - **Effectiveness.** EnergyPlus varies it with flow; OpenBSE does not.
 - **Control.** EnergyPlus has frost control and economizer lockout, where
   OpenBSE has a fixed ±1 K bypass.
+- **Runaround loop.** EnergyPlus models a coil loop as
+  `HeatExchanger:AirToAir:SensibleAndLatent` with zero latent effectiveness, or
+  as two water coils on a pumped loop; OpenBSE uses the first form, with the
+  loop pump in `parasitic_power`.
 
 ## Humidifiers {#sec-humidifier}
 
@@ -569,9 +628,13 @@ An electric steam humidifier has rated power $P_r$ and steam capacity
 $\dot m_{s,r} = P_r/\Delta h_s$, with
 $\Delta h_s = h_{fg}(100\,°\text{C}) + \bar c_{p,w}(100 - 20) \approx 2.592\times10^6$
 J/kg: make-up water at 20 °C to steam at 100 °C, with $h_{fg} = 2.2565\times10^6$
-J/kg and $\bar c_{p,w}$ the mean of the water's specific heat at 20 and 100 °C. Its target humidity ratio is either
-a fixed `w_setpoint`, or the humidity ratio at `min_rh_setpoint` and the
-served zone's live air temperature. Below the target,
+J/kg and $\bar c_{p,w}$ the mean of the water's specific heat at 20 and 100 °C,
+unless the capacity is given (`rated_capacity`, m³/s of water converted at the
+density of 5.05 °C water); the power per kg of steam is then $P_r/\dot m_{s,r}$. On an air loop
+its target humidity ratio is set each timestep by the loop's controls
+(@eq-humidifier-setpoint below); a stand-alone humidifier uses a fixed
+`w_setpoint`, or the humidity ratio at `min_rh_setpoint` and the served zone's
+live air temperature. Below the target,
 
 $$
 \begin{gathered}
@@ -587,12 +650,42 @@ vapour enthalpy on the basis of @eq-enthalpy. The make-up water is
 $\dot m_s$, and the humidifier's thermal output is the enthalpy it adds to the
 air, $\dot m_sh_g(100\,°\text{C}) = \dot m(h_\text{out} - h_\text{in})$.
 
+**Supply setpoint.** On an air loop the humidifier holds
+
+$$
+W_\text{target} = \min\left(\max\left(W_\text{min},\ \max_z\left[W_{\text{sp},z} + \frac{\dot m_{w,z}(W_{\text{sp},z})}{\dot m_z}\right]\right),\ W_\text{max}\right),
+$$ {#eq-humidifier-setpoint}
+
+over the served zones with a `min_relative_humidity` whose moisture load is
+positive. $W_{\text{sp},z}$ is the humidity ratio at that RH and the zone's
+temperature, $\dot m_z$ the air the zone receives, and $\dot m_{w,z}(W)$ the
+zone's moisture load line from its latest moisture solve without the supply
+air: the moisture the supply must add for the zone to reach $W$ this timestep,
+
+$$
+\dot m_{w,z}(W) = \left(\frac{\rho V}{\Delta t_\text{eff}} + \dot m_o\right)W - \left(\frac{\rho V}{\Delta t_\text{eff}}W_\text{hist} + \dot m_oW_o + \frac{\dot Q_\text{lat}}{h_g}\right),
+$$ {#eq-moisture-load-line}
+
+with the zone's outdoor-air inflow $\dot m_o$ and latent gains. $W_\text{min}$
+and $W_\text{max}$ are the humidifier's `minimum_setpoint_humidity_ratio`
+(0.005) and `maximum_setpoint_humidity_ratio` (0.012): it holds at least
+$W_\text{min}$ whether or not a zone needs moisture.
+
 **Comparison with EnergyPlus.** @eq-humidifier matches
 `Humidifier:Steam:Electric` (`Humidifiers.cc`) [@eplus-engref-25-2,
 "Air System Humidifiers"], including the 20 °C make-up water of its rated
 capacity (`SizeHumidifier`). EnergyPlus takes the rated capacity and power as
-separate inputs and checks them against each other; OpenBSE derives the
-capacity from the power.
+separate inputs, converting the volume at `RhoH2O(InitConvTemp)`, and draws
+$P_r\dot m_s/\dot m_{s,r}$ with both as given; so does OpenBSE when
+`rated_capacity` is set. Without it, OpenBSE derives the capacity from the power
+as E+ autosizes it. @eq-humidifier-setpoint is
+`SetpointManager:MultiZone:Humidity:Minimum` (`SetPointManager.cc`,
+`SPMMultiZoneHum::calculate`) with its default limits, the zones' moisture
+demand from `ZoneAirMoisturePredictorCorrector`. E+ adds the load to the
+zone's current humidity ratio, OpenBSE to the setpoint's; they agree once
+the zone is at its setpoint, and OpenBSE's lands a zone below it on the
+setpoint in one timestep. A single-zone loop uses the same formula with
+its one zone (E+ `SetpointManager:SingleZone:Humidity:Minimum`).
 
 ## Evaporative coolers {#sec-evap-cooler}
 
@@ -641,4 +734,4 @@ the secondary flow ratio.
 
 - [#345](https://github.com/bbrannon4/OpenBSE/issues/345): heat-recovery
   effectiveness fixed with flow and no frost control; evaporative cooler has no
-  setpoint; humidifier capacity always derived from its power.
+  setpoint.
