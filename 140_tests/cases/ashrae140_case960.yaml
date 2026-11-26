@@ -55,73 +55,123 @@ weather_files:
   - "ASHRAE 140-2023 Accompanying FIles/Std140_TF_Files/Normative Materials/725650TY.csv"
 
 # ─── Constructions ─────────────────────────────────────────────────────────────
+# ─── Opaque Constructions ──────────────────────────────────────────────────
+# Layer properties of ASHRAE 140-2023 Section 7.2: the material tables for
+# Cases 600, 680, 900, 960 (common wall) and 980, numbered Tables 5-2, 5-25,
+# 5-27, 5-29 and 5-31 in 140-2017 Addendum a. Floor insulation is massless
+# ("minimum density and specific heat the program allows"). Solar
+# absorptance 0.6 and infrared emittance 0.9 on both faces (Table 5-5);
+# exterior surfaces rough (Table 5-6).
 
-simple_constructions:
-  # Case 600 Wall (lightweight): Wood Siding 9mm / Fiberglass 66mm / Plasterboard 12mm
-  # U = 0.559 W/(m2K), C = 14534 J/(m2K)
-  # Used for Back Zone N/E/W walls (per E+ IDF: LTWALL)
+materials:
+  - name: Wood Siding
+    conductivity: 0.14
+    density: 530.0
+    specific_heat: 900.0
+    solar_absorptance: 0.6
+    thermal_absorptance: 0.9
+    roughness: rough
+  - name: Fiberglass Quilt
+    conductivity: 0.04
+    density: 12.0
+    specific_heat: 840.0
+    solar_absorptance: 0.6
+    thermal_absorptance: 0.9
+  - name: Plasterboard
+    conductivity: 0.16
+    density: 950.0
+    specific_heat: 840.0
+    solar_absorptance: 0.6
+    thermal_absorptance: 0.9
+  - name: Floor Insulation Low Mass
+    thermal_resistance: 25.075
+    solar_absorptance: 0.6
+    thermal_absorptance: 0.9
+    roughness: rough
+  - name: Timber Flooring
+    conductivity: 0.14
+    density: 650.0
+    specific_heat: 1200.0
+    solar_absorptance: 0.6
+    thermal_absorptance: 0.9
+  - name: Roof Deck
+    conductivity: 0.14
+    density: 530.0
+    specific_heat: 900.0
+    solar_absorptance: 0.6
+    thermal_absorptance: 0.9
+    roughness: rough
+  - name: Foam Insulation
+    conductivity: 0.04
+    density: 10.0
+    specific_heat: 1400.0
+    solar_absorptance: 0.6
+    thermal_absorptance: 0.9
+  - name: Concrete Block
+    conductivity: 0.51
+    density: 1400.0
+    specific_heat: 1000.0
+    solar_absorptance: 0.6
+    thermal_absorptance: 0.9
+  - name: Floor Insulation High Mass
+    thermal_resistance: 25.175
+    solar_absorptance: 0.6
+    thermal_absorptance: 0.9
+    roughness: rough
+  - name: Concrete Slab
+    conductivity: 1.13
+    density: 1400.0
+    specific_heat: 1000.0
+    solar_absorptance: 0.6
+    thermal_absorptance: 0.9
+
+constructions:
+  # Table 5-2, outside to inside
   - name: Case600 Wall
-    u_factor: 0.559
-    thermal_capacity: 14534.0
-    solar_absorptance: 0.6
-    thermal_absorptance: 0.9
-    roughness: rough
-
-  # Case 600 Floor (lightweight): R-25 Insulation / Timber Flooring 25mm
-  # U = 0.040 W/(m2K), C = 19500 J/(m2K)
-  # Used for Back Zone floor (per E+ IDF: LTFLOOR)
+    layers:
+      - material: Wood Siding
+        thickness: 0.009
+      - material: Fiberglass Quilt
+        thickness: 0.066
+      - material: Plasterboard
+        thickness: 0.012
+  # Table 5-2, outside to inside
   - name: Case600 Floor
-    u_factor: 0.040
-    thermal_capacity: 19500.0
-    solar_absorptance: 0.6
-    thermal_absorptance: 0.9
-
-  # Case 600/900 Roof (lightweight): Roof Deck 19mm / Fiberglass 112mm / Plasterboard 10mm
-  # U = 0.334 W/(m2K), C = 18170 J/(m2K)
-  # Used for both zones
+    layers:
+      - material: Floor Insulation Low Mass
+        thickness: 1.003
+      - material: Timber Flooring
+        thickness: 0.025
+  # Table 5-2, outside to inside
   - name: Case900 Roof
-    u_factor: 0.334
-    thermal_capacity: 18170.0
-    solar_absorptance: 0.6
-    thermal_absorptance: 0.9
-    roughness: rough
-
-  # Sun Zone Wall (heavyweight): Wood Siding 9mm / Foam 61.5mm / Concrete Block 100mm
-  # U = 0.556 W/(m2K), C = 145154 J/(m2K)
-  # Solar absorptance 0.6, as for Case 900 (Section 7.2.2.2.7.3, Table 5-5)
-  # Used for Sun Zone S/E/W exterior walls
+    layers:
+      - material: Roof Deck
+        thickness: 0.019
+      - material: Fiberglass Quilt
+        thickness: 0.1118
+      - material: Plasterboard
+        thickness: 0.01
+  # Table 5-27, outside to inside
   - name: SunZone Wall
-    u_factor: 0.556
-    thermal_capacity: 145154.0
-    solar_absorptance: 0.6
-    thermal_absorptance: 0.9
-    mass_conductivity: 0.51
-    mass_density: 1400.0
-    roughness: rough
-
-  # Sun Zone Floor (heavyweight): R-25 Insulation / Concrete Slab 80mm
-  # U = 0.0396 W/(m2K), C = 112000 J/(m2K)
-  # Solar absorptance 0.6, as for Case 900 (Section 7.2.2.2.7.3, Table 5-5)
+    layers:
+      - material: Wood Siding
+        thickness: 0.009
+      - material: Foam Insulation
+        thickness: 0.0615
+      - material: Concrete Block
+        thickness: 0.1
+  # Table 5-27, outside to inside
   - name: SunZone Floor
-    u_factor: 0.0396
-    thermal_capacity: 112000.0
-    solar_absorptance: 0.6
-    thermal_absorptance: 0.9
-    mass_conductivity: 1.13
-    mass_density: 1400.0
-
-  # Common Wall: 200mm Concrete Block (no insulation)
-  # Separates Back Zone from Sun Zone
-  # U = k/t = 0.51/0.200 = 2.55 W/(m2K)
-  # C = rho*cp*t = 1400*1000*0.200 = 280000 J/(m2K)
-  # Solar absorptance = 0.6 (matches E+ reference)
+    layers:
+      - material: Floor Insulation High Mass
+        thickness: 1.007
+      - material: Concrete Slab
+        thickness: 0.08
+  # Table 5-29, outside to inside
   - name: Common Wall
-    u_factor: 2.55
-    thermal_capacity: 280000.0
-    solar_absorptance: 0.6
-    thermal_absorptance: 0.9
-    mass_conductivity: 0.51
-    mass_density: 1400.0
+    layers:
+      - material: Concrete Block
+        thickness: 0.2
 
 glazing_materials:
   # Clear glass pane of the standard (WINDOW 7 CLEAR_3)
