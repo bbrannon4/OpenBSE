@@ -38,7 +38,7 @@ Machine checks: `conformance_spec.json` lists 4,442 specified values across the 
 | #523 | Outdoor humidity ratio from the dew point (was whole-percent RH) | 9, 10, 11 |
 | #535 | Section 10 envelope per Table 10-2 (was adiabatic surfaces) | 10 |
 | v0.8.0 | Output forms: Section 7 solar, sky-temperature and specific-day outputs (7.3.2–7.3.5, 7.3.8) and zero peaks entered as 0 (7.3.1.5); Section 11 two-zone RHcco (was 0) and outdoor-air states from the dew point; program version and dates from `Cargo.toml` and `CHANGELOG.md`; Section 10 CODENAME/COUNTRY in every block; modeling notes (Annex A2 item i) for each section | 7, 10, 11 (output) |
-| v0.8.0 | Section 7.2.3 in-depth cases added (25 cases, below); engine: constant combined surface coefficients for Cases 450–470, and a zone's volume from its parent surfaces only (an opaque subsurface no longer breaks the closed-shell test) | 7 |
+| v0.8.1 | Section 7.2.3 in-depth cases added (25 cases, below); engine: constant combined surface coefficients for Cases 450–470, and a zone's volume from its parent surfaces only (an opaque subsurface no longer breaks the closed-shell test) | 7 |
 | #53 (existing) | `simple_constructions` layer guess tuned to 140 constructions; no 140 case uses it now | — |
 
 ## Method and citations

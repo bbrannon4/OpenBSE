@@ -352,7 +352,7 @@ checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
 
 [[package]]
 name = "openbse-a205"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "approx",
  "ciborium",
@@ -364,7 +364,7 @@ dependencies = [
 
 [[package]]
 name = "openbse-airloop"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "approx",
  "log",
@@ -377,7 +377,7 @@ dependencies = [
 
 [[package]]
 name = "openbse-cli"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -398,7 +398,7 @@ dependencies = [
 
 [[package]]
 name = "openbse-components"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "approx",
  "log",
@@ -411,7 +411,7 @@ dependencies = [
 
 [[package]]
 name = "openbse-controls"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "approx",
  "log",
@@ -423,7 +423,7 @@ dependencies = [
 
 [[package]]
 name = "openbse-core"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "log",
  "openbse-psychrometrics",
@@ -435,7 +435,7 @@ dependencies = [
 
 [[package]]
 name = "openbse-cosim"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "log",
  "openbse-core",
@@ -446,7 +446,7 @@ dependencies = [
 
 [[package]]
 name = "openbse-envelope"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "approx",
  "log",
@@ -461,7 +461,7 @@ dependencies = [
 
 [[package]]
 name = "openbse-io"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "csv",
  "log",
@@ -484,7 +484,7 @@ dependencies = [
 
 [[package]]
 name = "openbse-psychrometrics"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "approx",
  "thiserror",
@@ -492,7 +492,7 @@ dependencies = [
 
 [[package]]
 name = "openbse-standards"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "openbse-envelope",
  "serde",
@@ -501,7 +501,7 @@ dependencies = [
 
 [[package]]
 name = "openbse-weather"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "csv",
  "log",

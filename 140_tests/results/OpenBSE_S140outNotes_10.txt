@@ -44,7 +44,7 @@ Information for Item 8 shall be permitted but is not required.
 
 2. SOFTWARE NAME: OpenBSE (Open Building Simulation Engine), command-line engine `openbse`
 
-3. SOFTWARE VERSION (unique software version identifier): 0.8.0 (git tag v0.8.0, released 2026-11-26)
+3. SOFTWARE VERSION (unique software version identifier): 0.8.1 (git tag v0.8.1, released 2026-11-26)
 
 4. OPERATING SYSTEM REQUIREMENTS: macOS (Apple silicon and x86_64), Linux x86_64, Windows x86_64
 
