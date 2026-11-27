@@ -123,6 +123,28 @@ NOTE 3 - Simulation time step
     4 time steps per hour in every Section 7 case.
 
 
+NOTE 4 - Surface heat transfer coefficients
+-------------------------------------------------------------------------------
+4.1 Describe the Effect Being Simulated:
+    Convective and long-wave heat transfer at interior and exterior
+    surfaces.
+
+4.2 Optional Settings or Modeling Capabilities
+    (list setting or capability and its physical meaning):
+    Calculated (default): convection coefficients varying with each time
+        step, and long-wave exchange with the sky, air and ground outside
+        and among the zone surfaces inside.
+    inside_combined_coefficient / outside_combined_coefficient: a constant
+        combined (convective plus long-wave) coefficient for a face, to the
+        adjacent air temperature, replacing both.
+
+4.3 Setting or Capability Used:
+    Calculated in every Section 7 case except Cases 450, 460 and 470, which
+    use the Table 7-46 combined coefficients as 7.2.3.21-7.2.3.23 require:
+    interior and exterior in Case 450, interior only in Case 460, exterior
+    only in Case 470.
+
+
 ==============================================================================
 C. REPORT BLOCK FOR EQUIVALENT MODELING METHODS
 ===============================================================================
@@ -185,15 +207,7 @@ separate number and title for each note shall be applied.  If there are no
 omitted test cases, specify "NONE" in place of the information below.
 
 
-NOTE 1 - In-depth cases not run
--------------------------------------------------------------------------------
-1.1 List the Case(s) where Results Were Omitted, and which Results Were Omitted
-    for the Case(s):
-    Section 7.2.3 in-depth cases 195 through 470, 800 and 810: all results.
-
-1.2 Explanation for Omitting the Test Case(s) Results:
-    Not yet implemented in the program's test suite. These cases have no
-    acceptance ranges in Normative Annex A3.
+NONE
 
 
 ==============================================================================

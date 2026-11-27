@@ -504,9 +504,13 @@ fn symmetrize(af: &mut [Vec<f64>]) {
 /// `CalcScriptF`): Q_i = Σ_j G_ij σ (T_j⁴ − T_i⁴), with G symmetric and
 /// G_ii = 0. From the radiosities J = ε E + (1 − ε) F J:
 ///   G_ij = A_i ε_i / (1 − ε_i) · R_ij,  R = (I − (1 − ε) F)⁻¹ ε.
+/// A face of zero emissivity is a perfect reflector: it has no interchange.
 pub fn interchange_areas(areas: &[f64], f: &[Vec<f64>], emissivity: &[f64]) -> Vec<Vec<f64>> {
     const MAX_EMISSIVITY: f64 = 0.99999;
     let n = areas.len();
+    if emissivity.iter().all(|&e| e <= 0.0) {
+        return vec![vec![0.0; n]; n];
+    }
     let eps: Vec<f64> = emissivity
         .iter()
         .map(|&e| e.clamp(1e-6, MAX_EMISSIVITY))
@@ -532,6 +536,16 @@ pub fn interchange_areas(areas: &[f64], f: &[Vec<f64>], emissivity: &[f64]) -> V
         }
     }
     symmetrize(&mut g);
+    // A face of zero emissivity neither emits nor absorbs: the limit of the
+    // clamped value above, made exact.
+    for (i, &e) in emissivity.iter().enumerate() {
+        if e <= 0.0 {
+            g[i].fill(0.0);
+            for row in g.iter_mut() {
+                row[i] = 0.0;
+            }
+        }
+    }
     g
 }
 
@@ -750,6 +764,20 @@ mod tests {
         // The cold window gains, everything else loses.
         let (h, t_mrt) = linearised_exchange(&g[6], areas[6], 6, temps[6], &temps);
         assert!(h * (t_mrt - temps[6]) > 0.0);
+    }
+
+    #[test]
+    fn zero_emissivity_faces_take_no_part_in_the_exchange() {
+        let s = room_with_window_and_mass();
+        let f = direct_view_factors(&s);
+        let areas: Vec<f64> = s.iter().map(|x| x.area).collect();
+        let mut eps = [0.9, 0.9, 0.9, 0.9, 0.9, 0.9, 0.84, 0.9];
+        eps[6] = 0.0;
+        let g = interchange_areas(&areas, &f, &eps);
+        assert!((0..s.len()).all(|j| g[6][j] == 0.0 && g[j][6] == 0.0));
+        assert!(g[0][1] > 0.0);
+        let none = interchange_areas(&areas, &f, &[0.0; 8]);
+        assert!(none.iter().flatten().all(|&x| x == 0.0));
     }
 
     #[test]

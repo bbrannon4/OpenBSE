@@ -891,6 +891,9 @@ pub struct OutsideBoundary {
     pub t_air: f64,
     /// Long-wave irradiance on the face from sky, air and ground [W/m²]
     pub ir_incident: f64,
+    /// `h_conv` is a constant combined (convective plus long-wave)
+    /// coefficient: no film factor, and no long-wave exchange of its own.
+    pub combined: bool,
 }
 
 /// How the room-side node(s) exchange heat, re-evaluated each iteration.
@@ -1064,7 +1067,14 @@ impl Glazing {
     ) -> FaceSolve {
         let nf = self.n_faces();
         let m = faces.len();
-        let h_out = outside.h_conv * self.film_factor;
+        let (h_out, e0) = if outside.combined {
+            (outside.h_conv, 0.0)
+        } else {
+            (
+                outside.h_conv * self.film_factor,
+                self.layers[0].emissivity_front,
+            )
+        };
         let t_out = outside.t_air + KELVIN;
         let mut theta = [0.0; 10];
         for (t, f) in theta.iter_mut().zip(faces.iter()) {
@@ -1091,7 +1101,6 @@ impl Glazing {
                 b[g] += 0.5 * absorbed.get(k).copied().unwrap_or(0.0);
             }
             // Outer face: convection and long-wave with the outdoors.
-            let e0 = self.layers[0].emissivity_front;
             a[0][0] += e0 * STEFAN_BOLTZMANN * theta[0].powi(3) + h_out;
             b[0] += outside.ir_incident * e0 + h_out * t_out;
             // Gaps: gas conduction/convection and grey-body long-wave.
@@ -1176,8 +1185,7 @@ impl Glazing {
             last_change = change;
         }
         // Linearised conductance from the inner glass face to the outdoors.
-        let mut r = 1.0
-            / (h_out + 4.0 * self.layers[0].emissivity_front * STEFAN_BOLTZMANN * theta[0].powi(3));
+        let mut r = 1.0 / (h_out + 4.0 * e0 * STEFAN_BOLTZMANN * theta[0].powi(3));
         for k in 0..self.layers.len() {
             r += 1.0 / self.layer_conductance(k);
         }
@@ -1220,6 +1228,7 @@ impl Glazing {
             h_conv: h_out,
             t_air: t_out,
             ir_incident: STEFAN_BOLTZMANN * (t_out + KELVIN).powi(4),
+            combined: false,
         };
         let mut faces = self.starting_faces(h_out, 3.2, t_out, t_in);
         let nf = self.n_faces();
@@ -1596,6 +1605,7 @@ mod tests {
             h_conv: 12.0,
             t_air: -5.0,
             ir_incident: 250.0,
+            combined: false,
         };
         let absorbed = [120.0, 25.0, 15.0];
         let (t_z, t_r, h_c, h_r, q_in) = (21.0, 19.0, 2.5, 4.6, 8.0);
@@ -1623,6 +1633,54 @@ mod tests {
         // reaches the room.
         let cond3 = g.layer_conductance(2) * (faces[4] - faces[5]);
         assert!((cond3 + 0.5 * absorbed[2] + q_in - q_room).abs() < 1e-3 * source);
+    }
+
+    #[test]
+    fn combined_outside_coefficient_has_no_long_wave_or_film_factor() {
+        let mut g = Glazing::layered(
+            vec![clear_3mm(), clear_3mm()],
+            vec![Gap {
+                width: 0.012,
+                fill: GasFill {
+                    parts: vec![(AIR, 1.0)],
+                },
+            }],
+        );
+        g.film_factor = 1.3;
+        let solve = |ir: f64| {
+            let out = OutsideBoundary {
+                h_conv: 17.8,
+                t_air: -5.0,
+                ir_incident: ir,
+                combined: true,
+            };
+            let mut faces = g.starting_faces(17.8, 4.5, -5.0, 20.0);
+            let res = g.solve_faces(&mut faces, 2.0, 90.0, &out, &[0.0, 0.0], 0.0, |_| {
+                RoomCoupling::Film {
+                    h_conv: 4.5,
+                    h_rad: 0.0,
+                    t_air: 20.0,
+                    t_rad: 20.0,
+                }
+            });
+            assert!(res.converged, "{res:?}");
+            (faces, res.u_out)
+        };
+        let (cold_sky, u) = solve(150.0);
+        let (warm_sky, _) = solve(400.0);
+        // The sky does not reach a face with a combined coefficient.
+        assert!((cold_sky[0] - warm_sky[0]).abs() < 1e-9);
+        // Outer face: the room's heat leaves by 17.8 W/(m²·K) alone.
+        let q_room = 4.5 * (20.0 - cold_sky[3]);
+        assert!((17.8 * (cold_sky[0] + 5.0) - q_room).abs() < 1e-3 * q_room);
+        // Conductance inner face to outdoors carries no film factor.
+        let mut r = 1.0 / 17.8 + 2.0 / g.layer_conductance(0);
+        let tm = 0.5 * (cold_sky[1] + cold_sky[2]) + KELVIN;
+        let e = g.layers[0].emissivity_back;
+        let hr = 4.0 * STEFAN_BOLTZMANN * tm.powi(3) * e * e / (1.0 - (1.0 - e) * (1.0 - e));
+        let hg = g.gaps[0].conductance(cold_sky[1] + KELVIN, cold_sky[2] + KELVIN, 2.0, 90.0);
+        r += 1.0 / (hg + hr);
+        assert!((u - 1.0 / r).abs() < 0.02, "{u} vs {}", 1.0 / r);
     }
 
     fn h_c_out(g: &Glazing, out: &OutsideBoundary) -> f64 {
