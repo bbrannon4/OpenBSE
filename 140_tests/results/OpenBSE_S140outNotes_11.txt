@@ -1,0 +1,249 @@
+MODELING NOTES FOR ASHRAE STANDARD 140 
+
+
+===============================================================================
+INTRODUCTION
+===============================================================================
+This document shall include supplemental information about the ASHRAE Standard 
+140 tests performed.  One S140outNotes document shall be provided for each 
+set of tests (e.g., one for the building thermal and fabric load tests of 
+Section 7.2; one for the space cooling equipment analytical 
+verification tests of Sections 9.2; etc.)  The types of information 
+listed below shall be provided in this document, each in a separate section:
+
+a. Software information
+b. Alternative modeling methods
+c. Equivalent modeling methods
+d. Nonspecified inputs
+e. Omitted test cases and results
+f. Changes made to source code for the purpose of running the tests, where
+   such changes are not available in publicly released versions of the software
+g. Anomalous results.
+
+Notes in this document shall be limited to the topics shown above.  Notes must 
+be factual and objective and shall only refer to the software being tested.  
+Notes shall not refer to any other software program.
+
+INFORMATIVE NOTE: Text at the start of each section describes the content of 
+the section for the reader and provides instructions for supplying the content.  
+Sample notes are provided in a separate document (S140outNotes_Examples.TXT).
+
+
+===============================================================================
+A. SOFTWARE INFORMATION
+===============================================================================
+CONTENT: This section shall include reference information for the software - 
+the vendor, name, and version of the software, plus operating system and computer
+hardware requirements.
+
+INSTRUCTIONS: Information for items 1 through 7 below shall be provided. 
+Information for Item 8 shall be permitted but is not required.
+
+
+1. SOFTWARE VENDOR: OpenBSE project, https://github.com/bbrannon4/OpenBSE (open source, AGPL-3.0-only)
+
+2. SOFTWARE NAME: OpenBSE (Open Building Simulation Engine), command-line engine `openbse`
+
+3. SOFTWARE VERSION (unique software version identifier): 0.8.0 (git tag v0.8.0, released 2026-11-26)
+
+4. OPERATING SYSTEM REQUIREMENTS: macOS (Apple silicon and x86_64), Linux x86_64, Windows x86_64
+
+5. APPROX HARD DISK SPACE REQUIRED FOR INSTALLATION: About 15 MB for the engine executable
+
+6. MINIMUM RAM REQUIRED FOR SOFTWARE OPERATION: 1 GB (the Standard 140 cases peak below 0.6 GB)
+
+7. MINIMUM DISPLAY MONITOR REQUIREMENTS: None; the engine is run from a command line and reads and writes text files
+
+8. OTHER HARDWARE OR SOFTWARE-RELATED REQUIREMENTS: Inputs are YAML files; results are CSV files. Building from source needs a Rust toolchain.
+
+INFORMATIVE NOTE: Item 8 can be used to supply additional relevant information.
+
+
+===============================================================================
+B. REPORT BLOCK FOR ALTERNATIVE MODELING METHODS
+===============================================================================
+CONTENT: If the software being tested provides alternative modeling methods or 
+algorithms for performing the tests, this section shall describe modeling
+methods used for the tests.
+
+INSTRUCTIONS:  If alternative modeling methods are applicable, a separate note 
+for each alternative modeling method or algorithm situation shall be provided.  
+The standard format shown below and a separate number and title for each note
+shall be applied.  If alternative modeling methods are not applicable, specify
+"NONE" in place of the information below.
+
+
+NOTE 1 - Chilled-water cooling coil
+-------------------------------------------------------------------------------
+1.1 Describe the Effect Being Simulated:
+    Cooling and dehumidification of the supply air by the cooling coil.
+
+1.2 Optional Settings or Modeling Capabilities
+    (list setting or capability and its physical meaning):
+    Coil on a plant loop: a counterflow coil, dry or wet by the entering
+        dew point, sized to its design point; its valve holds the leaving
+        air setpoint and the leaving state follows from the coil UA.
+    Coil with no plant loop: an ideal coil that cools the air to the
+        setpoint, limited by its capacity, and condenses down to saturation
+        at the leaving temperature when the entering air is wetter.
+
+1.3 Setting or Capability Used:
+    Coil with no plant loop (ideal coil) in every case with cooling.
+
+
+NOTE 2 - Simulation time step
+-------------------------------------------------------------------------------
+2.1 Describe the Effect Being Simulated:
+    Length of the calculation time step for the zone heat balance and HVAC.
+
+2.2 Optional Settings or Modeling Capabilities
+    (list setting or capability and its physical meaning):
+    1 to 60 time steps per hour (`simulation: timesteps_per_hour`).
+        Physical Meaning: the heat balance, controls and equipment are solved
+        this many times per hour; weather is interpolated within the hour.
+
+2.3 Setting or Capability Used:
+    1 time step per hour in every case.
+
+
+==============================================================================
+C. REPORT BLOCK FOR EQUIVALENT MODELING METHODS
+===============================================================================
+CONTENT: This section shall describe equivalent modeling methods used to perform
+the tests.  When the software does not model an effect exactly as stated in the
+standard or does not permit the input values required, equivalent modeling 
+methods shall be permitted to perform the test.
+
+INSTRUCTIONS:  If equivalent modeling methods are applied, a separate note for 
+each instance of equivalent modeling shall be provided.  The standard format 
+shown below and a separate number and title for each note shall be applied. If
+equivalent modeling methods are not applicable, specify "NONE" in place of the 
+information below.
+
+
+NOTE 1 - Outdoor air replacing exhaust air
+-------------------------------------------------------------------------------
+1.1 Describe the Effect Being Simulated:
+    Outdoor air drawn by the air system to replace the zone exhaust.
+
+1.2 Section(s) of the Standard where Relevant Inputs are Specified:
+    11.2.1.1.2.2 and 11.2.1.1.2.3
+
+1.3 Equivalent Input(s) Used:
+    Minimum outdoor-air fraction of 1/3 of the supply volume flow.
+
+1.4 Physical, Mathematical or Logical Justification of the Equivalent Input(s)
+    - provide supporting calculations, if relevant:
+    11.2.1.1.2.3 permits the program's own outdoor-air-replaces-exhaust
+    assumption in place of matching outdoor-air mass to exhaust mass.
+
+
+NOTE 2 - Supply fan efficiency
+-------------------------------------------------------------------------------
+2.1 Describe the Effect Being Simulated:
+    Supply fan power and the fan heat added to the airstream.
+
+2.2 Section(s) of the Standard where Relevant Inputs are Specified:
+    11.2.1.1.1.1
+
+2.3 Equivalent Input(s) Used:
+    498 Pa, impeller efficiency 0.7, motor efficiency 1.0 with the motor
+    in the airstream.
+
+2.4 Physical, Mathematical or Logical Justification of the Equivalent Input(s)
+    - provide supporting calculations, if relevant:
+    11.2.1.1.1.1 permits a combined efficiency of 0.7 with all fan heat
+    in the airstream. Fan power = flow x 498 Pa / 0.7 in both forms, and
+    all of it enters the air.
+
+
+==============================================================================
+D. REPORT BLOCK FOR USE OF NON-SPECIFIED INPUTS
+===============================================================================
+CONTENT: This section shall describe nonspecified inputs used to perform
+the tests.  Use of nonspecified inputs shall be permitted only for the 
+following specified sections relating to the following topics: 
+
+* Alternative constant exterior surface coefficients in Sections 7.2.1.9.3,
+  7.2.3.1.4.3, 7.2.3.3.2, and 9.2.1.8
+* Alternative constant interior surface coefficients in Sections 7.2.1.10.3,
+  7.2.3.1.4.4, 7.2.3.2.2, and 9.2.1.9
+* Alternative constant interior solar distribution fractions in Sections
+  7.2.1.12, 7.2.2.1.2.2, 7.2.2.1.6.2, 7.2.2.1.7.2, 7.2.2.2.7.4, 7.2.3.9.3,
+  7.2.3.10.2, and 7.2.3.12.2
+* Air density given at specific altitudes for the space-cooling and space- 
+  heating equipment cases in Sections 9.2.1.4.3, 9.2.3.4.3, and 10.2.1.4.3.
+
+
+INSTRUCTIONS:  If nonspecified inputs are applied, a separate note for each use 
+of nonspecified inputs shall be provided.  The standard format shown below and
+a separate number and title for each note shall be applied. If nonspecified
+inputs are not applied, specify "NONE" in place of the information below.
+
+
+NONE
+
+
+===============================================================================
+
+
+
+===============================================================================
+E. REPORT BLOCK FOR OMITTED TEST CASES AND RESULTS
+===============================================================================
+CONTENT: This section shall describe test cases that were omitted and/or 
+individual results of test cases that were omitted along with the reason for
+the omission.
+
+INSTRUCTIONS:  If test cases were omitted, a separate note to describe each
+type of omission shall be provided. The standard format shown below and a 
+separate number and title for each note shall be applied.  If there are no 
+omitted test cases, specify "NONE" in place of the information below.
+
+
+NONE
+
+
+==============================================================================
+F. REPORT BLOCK FOR CHANGES TO SOURCE CODE FOR THE PURPOSE OF RUNNING THE 
+   TESTS, WHERE SUCH CHANGES ARE NOT AVAILABLE IN PUBLICLY RELEASED VERSIONS OF 
+   THE SOFTWARE
+===============================================================================
+CONTENT: This section shall describe changes to software source code made to 
+allow the software to run a test, where such changes are not available in a 
+publicly released version of the software.  
+
+INFORMATIVE NOTE: This section addresses special situations where a change to 
+source code is necessary to activate a feature or to permit inputs needed for
+a test when these features are not available in the publicly released version
+of the software.
+
+INSTRUCTIONS:  If changes to the source code for the purpose of running a test
+are applied, separate notes to describe each source code modification shall be
+provided. The standard format shown below and a separate number and title for 
+each note shall be applied. If changes to source code are not applied, specify 
+"NONE" in place of the information below.
+
+
+NONE
+
+
+==============================================================================
+G. REPORT BLOCK FOR ANOMALOUS RESULTS
+===============================================================================
+CONTENT: Describing anomalous results shall be permitted but is not required. 
+If anomalous test results are described, this section shall be used.
+
+INSTRUCTIONS:  If anomalous test results are described, each type of anomalous 
+result shall be described in a separate note.  The standard format shown below 
+and a separate number and title for each note item shall be applied. If 
+anomalous results are not discussed, it shall be permitted to specify "NONE" in 
+place of the information below.
+
+  
+NONE
+
+
+===============================================================================
+<END OF DOCUMENT>
+===============================================================================

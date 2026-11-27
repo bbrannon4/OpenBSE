@@ -41,8 +41,10 @@ DEFAULT_OUTPUT = os.path.join(
     os.path.dirname(HERE), "results", "OpenBSE_Std140_AE_Output.xlsx"
 )
 
+import openbse_release  # noqa: E402
+
 PROGRAM_NAME = "OpenBSE"
-PROGRAM_VERSION = "0.7.0"
+PROGRAM_VERSION = openbse_release.version()
 
 # Imposed latent gain is identical across the series (586.1 W zone 1); zone 2 in
 # the two-zone cases adds 879.2 W. Values below are per-case imposed loads [kW].
@@ -85,10 +87,36 @@ def col(row, needle):
 
 # ── Detailed node-state tables (S-columns) ────────────────────────────────────
 # Outdoor-air humidity ratio [kg/kg] at each normative weather file's
-# conditions, as the engine computes it (dry-bulb, the file's relative
-# humidity and pressure), and the weather file serving each case.
-OA_W = {"AE101": 0.000259, "AE103": 0.002933, "AE104": 0.016771,
-        "AE105": 0.004481, "AE106": 0.015564}
+# conditions, as the engine computes it: from the dew point and pressure
+# (openbse-psychrometrics `w_fn_tdp_pb`, #523), read at the reported hour
+# (the last of 7 January). Also the weather file serving each case.
+WEATHER_DIR = os.path.join(os.path.dirname(HERE), "weather")
+REPORTED_RECORD = 7 * 24  # 1-based data record of the last simulated hour
+
+
+def psat_engine_pa(t_c):
+    """Saturation pressure [Pa] as openbse-psychrometrics `psat_fn_temp`
+    (Hyland-Wexler, over ice below the triple point)."""
+    t = t_c + 273.15
+    if t < 273.16:
+        return math.exp(
+            -5674.5359 / t + 6.3925247
+            + t * (-0.9677843e-2 + t * (0.62215701e-6 + t * (0.20747825e-8 - 0.9484024e-12 * t)))
+            + 4.1635019 * math.log(t)
+        )
+    return psat_pa(t_c)
+
+
+def outdoor_w(weather):
+    with open(os.path.join(WEATHER_DIR, f"{weather}.csv")) as f:
+        next(f)  # station line
+        rec = list(csv.DictReader(f))[REPORTED_RECORD - 1]
+    pw = psat_engine_pa(float(rec["Dew-point (C)"]))
+    p = float(rec["Pressure (mbar)"]) * 100.0
+    return round(0.621945 * pw / (p - pw), 6)
+
+
+OA_W = {w: outdoor_w(w) for w in ("AE101", "AE103", "AE104", "AE105", "AE106")}
 CASE_WEATHER = {
     "AE101": "AE101", "AE103": "AE103", "AE104": "AE104",
     "AE201": "AE101", "AE203": "AE103", "AE204": "AE104", "AE205": "AE105",
@@ -361,8 +389,10 @@ def main():
     wb = openpyxl.load_workbook(args.template)
     ws = wb["A"]
 
-    # Program identity (C50..C52)
-    ws.cell(50, 3, f"{PROGRAM_NAME} {PROGRAM_VERSION}")
+    # Program identity: name C50, version C51, date of results C52
+    ws.cell(50, 3, PROGRAM_NAME)
+    ws.cell(51, 3, PROGRAM_VERSION)
+    ws.cell(52, 3, openbse_release.submission_date().isoformat())
 
     print("Fan-coil + single-zone series:")
     for case, row in SINGLE_ROWS.items():

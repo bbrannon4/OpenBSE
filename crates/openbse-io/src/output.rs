@@ -465,6 +465,11 @@ pub fn available_variables() -> Vec<(&'static str, &'static str, &'static str)> 
             "Pa",
             "Outdoor barometric pressure",
         ),
+        (
+            "site:sky_temperature",
+            "°C",
+            "Sky temperature applied to exterior longwave exchange",
+        ),
         // Component / HVAC variables
         (
             "component:outlet_temperature",
@@ -693,7 +698,7 @@ pub fn get_unit(spec: &str) -> &'static str {
         ) => "W/(m²·K)",
         ("surface", "incident_solar") => "W/m²",
         ("surface", _) => "W",
-        ("site", "outdoor_temperature") => "°C",
+        ("site", "outdoor_temperature" | "sky_temperature") => "°C",
         ("site", "wind_speed") => "m/s",
         ("site", "relative_humidity") => "%",
         ("site", "barometric_pressure") => "Pa",
@@ -871,6 +876,8 @@ pub struct OutputSnapshot {
     pub site_barometric_pressure: f64,
     /// Outdoor air humidity ratio [kg/kg].
     pub site_humidity_ratio: f64,
+    /// Sky temperature the envelope applies to exterior longwave exchange [°C].
+    pub site_sky_temperature: f64,
 
     // Per-zone data (zone_name -> value)
     pub zone_temperature: HashMap<String, f64>,
@@ -1046,6 +1053,7 @@ impl OutputSnapshot {
             site_relative_humidity: 0.0,
             site_barometric_pressure: 0.0,
             site_humidity_ratio: 0.0,
+            site_sky_temperature: 0.0,
             zone_temperature: HashMap::new(),
             zone_pressure: HashMap::new(),
             zone_occupied_temperature: HashMap::new(),
@@ -1165,6 +1173,7 @@ impl OutputSnapshot {
                 "relative_humidity" => single("Site", self.site_relative_humidity),
                 "barometric_pressure" => single("Site", self.site_barometric_pressure),
                 "humidity_ratio_gkg" => single("Site", self.site_humidity_ratio * 1000.0),
+                "sky_temperature" => single("Site", self.site_sky_temperature),
                 _ => HashMap::new(),
             },
             "zone" => match variable {
@@ -4283,6 +4292,11 @@ mod tests {
 
         let vals = snap.get_variable_values("site:wind_speed");
         assert_eq!(vals.get("Site"), Some(&3.5));
+
+        snap.site_sky_temperature = -12.5;
+        let vals = snap.get_variable_values("site:sky_temperature");
+        assert_eq!(vals.get("Site"), Some(&-12.5));
+        assert_eq!(get_unit("site:sky_temperature"), "\u{00b0}C");
     }
 
     #[test]

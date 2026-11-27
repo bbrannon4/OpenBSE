@@ -160,6 +160,14 @@ outputs:
       - zone_heating_energy
       - zone_cooling_energy
 
+  # Solar and sky outputs of Section 7.3.2-7.3.5 and Table 7-47
+  - file: "solar_results.csv"
+    frequency: hourly
+    variables:
+      - surface:incident_solar
+      - surface:transmitted_solar
+      - site:sky_temperature
+
 summary_report: true
 
 # ─── Zone ────────────────────────────────────────────────────────────────────

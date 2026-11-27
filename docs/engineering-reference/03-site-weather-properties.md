@@ -332,6 +332,8 @@ $$
 T_\text{sky} = \varepsilon_\text{sky}^{1/4}\,(T_\text{o} + 273.15) - 273.15.
 $$ {#eq-sky-temp}
 
+The output `site:sky_temperature` reports the $T_\text{sky}$ applied in each time step.
+
 **Comparison with EnergyPlus.** This is `Weather::calcSky` and `CalcSkyEmissivity` with
 EnergyPlus's default `WeatherProperty:SkyTemperature`. EnergyPlus also has a Brunt,
 an Idso and a Berdahl–Martin emissivity model and can ignore the file's infrared; here

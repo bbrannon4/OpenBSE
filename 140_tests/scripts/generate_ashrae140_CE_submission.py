@@ -18,7 +18,6 @@ exist:  for c in CE100 ... CE200; do openbse ashrae140_case$c.yaml; done
 
 import argparse
 import csv
-import datetime
 import os
 import statistics
 import sys
@@ -33,12 +32,14 @@ except ImportError:
 # Program identity for the submission header (official "YourData" layout). The
 # portal's completeness check requires at least the program name; organization
 # and dates mirror the template's fields — edit ORG / dates for your submission.
-PROGRAM_NAME = "OpenBSE 0.7.0"
+import openbse_release
+
+PROGRAM_NAME = f"OpenBSE {openbse_release.version()}"
 PROGRAM_SHORT = "OpenBSE"
 ORG_LONG = "OpenBSE"
 ORG_SHORT = "OpenBSE"
-VERSION_RELEASE_DATE = datetime.date(2026, 10, 11)
-SUBMISSION_DATE = datetime.date(2026, 10, 11)
+VERSION_RELEASE_DATE = openbse_release.release_date()
+SUBMISSION_DATE = openbse_release.submission_date()
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 CASES_DIR = os.path.join(os.path.dirname(HERE), "cases")

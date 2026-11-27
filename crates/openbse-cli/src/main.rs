@@ -5148,6 +5148,7 @@ fn main() -> Result<()> {
                     snapshot.site_relative_humidity = interp_weather.rel_humidity;
                     snapshot.site_barometric_pressure = interp_weather.pressure;
                     snapshot.site_humidity_ratio = interp_weather.to_air_state().w;
+                    snapshot.site_sky_temperature = env.sky_temperature;
 
                     // AFN species concentrations (#89): zone:species_<name>
                     if let Some(ref st) = env.species_transport {

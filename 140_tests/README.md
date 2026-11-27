@@ -73,8 +73,9 @@ scripts/            Case generators, the gate, and submission generators
   build_140_csv.py    Reads the case outputs and compares them against the gate ranges
   generate_*_cases.py Write the case YAMLs for Sections 9A, 9B, 10 and 11
   generate_ashrae140_*submission.py  Fill the standard's output spreadsheets
+  generate_ashrae140_notes.py        Write the modeling notes (S140outNotes) for each section
   solar_validation.py Solar calculation chain validation
-results/            Filled submission spreadsheets (OpenBSE_Std140_*_Output)
+results/            The submission: filled output forms (OpenBSE_Std140_*_Output) and modeling notes (OpenBSE_S140outNotes_*)
 acceptance_ranges_140_2023.json  Gate ranges and how each was derived
 conformance_spec.json            Specified input values per case (checked by a Rust test)
 CONFORMANCE.md                   Requirement-by-requirement conformance record
