@@ -635,8 +635,42 @@ algorithm and its DOE-2 and TARP outside algorithms
 roughness multipliers, windward test and wind profile
 [@eplus-engref-25-2, "Outdoor/Exterior Convection", "Interior Convection"].
 EnergyPlus's other
-algorithms (adaptive convection, ASHRAE simple, MoWiTT alone, per-surface
-`SurfaceProperty:ConvectionCoefficients`) are not available.
+algorithms (adaptive convection, ASHRAE simple, MoWiTT alone) are not
+available; constant per-surface coefficients are available only as combined
+coefficients (@sec-combined-coefficients).
+
+### Constant combined coefficients {#sec-combined-coefficients}
+
+A surface may give a constant combined (convective plus long-wave)
+coefficient for either face, `inside_combined_coefficient` and
+`outside_combined_coefficient`. The face then exchanges heat with the air
+beside it at that coefficient alone:
+
+$$
+q''_\text{in} = h_\text{comb,in}\,(T_z - T_\text{si}), \qquad
+q''_\text{out} = h_\text{comb,out}\,(T_\text{o} - T_\text{so}).
+$$ {#eq-combined-coefficient}
+
+On the outside face $h_\text{comb,out}$ replaces $h_{c,o}$ in
+@eq-outside-temp and the sky, air and ground long-wave coefficients are
+zero; for a window it is the outer pane's coefficient, with no film factor
+and no long-wave term. On the inside face $h_\text{comb,in}$ replaces $h_{c,i}$ in
+@eq-inside-temp and the face takes no part in the zone's long-wave exchange: it has zero
+emissivity in @eq-scriptf, so the other faces exchange only among
+themselves. Radiant internal gains and solar are still absorbed by the face
+(@sec-radiant-gains, @sec-interior-solar), since the combined coefficient
+describes how the face loses heat, not what it absorbs.
+
+ASHRAE Standard 140-2023 Cases 450, 460 and 470 (7.2.3.21–7.2.3.23) prescribe
+these coefficients, Table 7-46, and prohibit time-step varying ones.
+
+**Comparison with EnergyPlus.** EnergyPlus has no combined coefficient. The
+Standard's accompanying input for Case 450 enters the Table 7-46 values as
+constant convection coefficients
+(`SurfaceProperty:ConvectionCoefficients:MultipleSurface`) and sets every
+emissivity to 10⁻⁶, as 7.2.3.21's informative note permits. The model here
+is that limit made exact: no residual long-wave exchange, and the
+emissivities that set radiant-gain absorption keep their values.
 
 ## Known limitations: surface heat balances {#sec-surface-hb-limitations}
 

@@ -475,6 +475,17 @@ fn room_facing_emissivity(s: &SurfaceState) -> f64 {
     }
 }
 
+/// Emissivity a surface takes in its zone's long-wave interchange: 0 for a
+/// face with a constant combined inside coefficient, which already carries
+/// its long-wave exchange, so it neither emits nor absorbs in the exchange.
+fn interchange_emissivity(s: &SurfaceState) -> f64 {
+    if s.input.inside_combined_coefficient.is_some() {
+        0.0
+    } else {
+        room_facing_emissivity(s)
+    }
+}
+
 /// Linearised interior long-wave exchange of a surface at `t_surface` [°C]
 /// with the rest of its zone at `rad_temps[zone]`: (h_rad, T_mrt), with
 /// h_rad·(T_mrt − T_surface) the net long-wave gain per unit area. A surface
@@ -628,7 +639,7 @@ impl BuildingEnvelope {
             let emissivity: Vec<f64> = zr
                 .surfaces
                 .iter()
-                .map(|&si| room_facing_emissivity(&self.surfaces[si]))
+                .map(|&si| interchange_emissivity(&self.surfaces[si]))
                 .collect();
             let changed = emissivity
                 .iter()
@@ -677,6 +688,9 @@ impl BuildingEnvelope {
         let q_inner = if shade.is_some() { 0.0 } else { q_rad };
         let w_zone = self.zones[zi].humidity_ratio;
         let film = glz.film_factor;
+        // A constant combined coefficient replaces the room-side convection
+        // model and carries the face's long-wave exchange.
+        let combined_in = s.input.inside_combined_coefficient;
 
         // Start from the last solve's faces; a new glazing (first solve, or
         // a blind assembly switched in) starts from E+'s resistance network.
@@ -699,11 +713,16 @@ impl BuildingEnvelope {
                     / (1.0 / eps_glass + 1.0 / sh.emissivity - 1.0);
                 let (h_cv, h_vent) =
                     shade_gap_coefficients(sh.distance_to_glass, height, tg, tsh, ta, t_z);
-                let h_cs =
-                    (convection::window_interior_convection(tsh, t_z, w_zone, p_b, height, tilt)
-                        * film)
-                        .max(convection::LOW_H_CONV_LIMIT);
-                let (h_rr, t_rad) = lw_exchange(zone_rad, rad_temps, zi, rad_index, tsh, t_z);
+                let (h_cs, (h_rr, t_rad)) = match combined_in {
+                    Some(h) => (h, (0.0, t_z)),
+                    None => (
+                        (convection::window_interior_convection(
+                            tsh, t_z, w_zone, p_b, height, tilt,
+                        ) * film)
+                            .max(convection::LOW_H_CONV_LIMIT),
+                        lw_exchange(zone_rad, rad_temps, zi, rad_index, tsh, t_z),
+                    ),
+                };
                 glazing::RoomCoupling::Shade {
                     h_gs,
                     h_cv,
@@ -717,11 +736,15 @@ impl BuildingEnvelope {
             }
             None => {
                 let t = f[nf - 1];
-                let h_conv =
-                    (convection::window_interior_convection(t, t_z, w_zone, p_b, height, tilt)
-                        * film)
-                        .max(convection::LOW_H_CONV_LIMIT);
-                let (h_rad, t_rad) = lw_exchange(zone_rad, rad_temps, zi, rad_index, t, t_z);
+                let (h_conv, (h_rad, t_rad)) = match combined_in {
+                    Some(h) => (h, (0.0, t_z)),
+                    None => (
+                        (convection::window_interior_convection(t, t_z, w_zone, p_b, height, tilt)
+                            * film)
+                            .max(convection::LOW_H_CONV_LIMIT),
+                        lw_exchange(zone_rad, rad_temps, zi, rad_index, t, t_z),
+                    ),
+                };
                 glazing::RoomCoupling::Film {
                     h_conv,
                     h_rad,
@@ -937,10 +960,13 @@ impl BuildingEnvelope {
 
             // ── Auto-calculate volume ──
             if zone.input.volume <= 0.0 {
+                // A subsurface (window, or an opaque door in a wall) lies
+                // inside its parent's polygon, so only parents bound the zone.
                 let faces_of = |wanted: &[SurfaceType]| -> Vec<&[geometry::Point3D]> {
                     zone_surfaces
                         .iter()
                         .filter(|s| wanted.contains(&s.surface_type))
+                        .filter(|s| s.parent_surface.is_none())
                         .filter_map(|s| s.vertices.as_deref())
                         .filter(|v| v.len() >= 3)
                         .collect()
@@ -1024,6 +1050,8 @@ impl BuildingEnvelope {
                     exposed_perimeter: None,
                     adjacent_surface: None,
                     airflow: None,
+                    inside_combined_coefficient: None,
+                    outside_combined_coefficient: None,
                     height: None,
                 };
                 surfaces.push(surf);
@@ -1395,7 +1423,7 @@ impl BuildingEnvelope {
             let vf = view_factors::direct_view_factors(&rad_surfaces);
             let emissivity: Vec<f64> = members
                 .iter()
-                .map(|&si| room_facing_emissivity(&surface_states[si]))
+                .map(|&si| interchange_emissivity(&surface_states[si]))
                 .collect();
             let interchange = view_factors::interchange_areas(&areas, &vf, &emissivity);
             for (k, &si) in members.iter().enumerate() {
@@ -3150,7 +3178,12 @@ impl EnvelopeSolver for BuildingEnvelope {
             for si in 0..self.surfaces.len() {
                 match &self.surfaces[si].input.boundary.clone() {
                     BoundaryCondition::Outdoor => {
-                        if self.surfaces[si].input.wind_exposure {
+                        let combined_out = self.surfaces[si].input.outside_combined_coefficient;
+                        if let Some(h) = combined_out {
+                            // A constant combined coefficient replaces the
+                            // convection model; long-wave is dropped below.
+                            self.surfaces[si].h_conv_outside = h;
+                        } else if self.surfaces[si].input.wind_exposure {
                             // Wind speed at surface centroid height (E+ DataSurfaces.cc:635-660)
                             let wind_at_surface = convection::wind_speed_at_height(
                                 wind_speed_met,
@@ -3208,7 +3241,9 @@ impl EnvelopeSolver for BuildingEnvelope {
                             // factors from tilt. The sun_exposure flag does NOT affect
                             // longwave radiation exchange (ASHRAE 140 floors use
                             // Outdoors+NoSun+NoWind and still exchange longwave).
-                            let suppress_ext_radiation = false;
+                            // A combined coefficient already carries the
+                            // face's long-wave exchange.
+                            let suppress_ext_radiation = combined_out.is_some();
 
                             // E+ view factors (ConvectionCoefficients.cc)
                             let f_sky = if suppress_ext_radiation {
@@ -3442,6 +3477,10 @@ impl EnvelopeSolver for BuildingEnvelope {
                     t_air: t_outdoor,
                     ir_incident: f_sky * (split * e_sky + (1.0 - split) * e_air)
                         + (1.0 - f_sky) * e_air,
+                    combined: self.surfaces[i]
+                        .input
+                        .outside_combined_coefficient
+                        .is_some(),
                 };
                 self.solve_window(i, zi, t_z, p_b, outside, &rad_temps);
             }
@@ -3875,25 +3914,34 @@ impl EnvelopeSolver for BuildingEnvelope {
 
                     let t_old = t_inside_old[i];
 
-                    // Inside convection coefficient (updated each iteration)
-                    let h_conv = convection::interior_convection(
-                        self.surfaces[i].temp_inside,
-                        t_zone,
-                        self.surfaces[i].input.tilt,
-                    )
-                    .max(0.1);
+                    // Inside convection coefficient (updated each iteration),
+                    // or a constant combined coefficient, which carries the
+                    // face's long-wave exchange too.
+                    let combined_in = self.surfaces[i].input.inside_combined_coefficient;
+                    let h_conv = combined_in.unwrap_or_else(|| {
+                        convection::interior_convection(
+                            self.surfaces[i].temp_inside,
+                            t_zone,
+                            self.surfaces[i].input.tilt,
+                        )
+                        .max(0.1)
+                    });
                     self.surfaces[i].h_conv_inside = h_conv;
 
                     // Interior long-wave exchange with the zone's other surfaces,
                     // linearised as h_rad·(T_mrt − T_i).
-                    let (h_rad, t_mrt) = lw_exchange(
-                        &self.zone_rad,
-                        &rad_temps,
-                        pc.zi,
-                        self.surfaces[i].rad_index,
-                        t_old,
-                        t_zone,
-                    );
+                    let (h_rad, t_mrt) = if combined_in.is_some() {
+                        (0.0, t_zone)
+                    } else {
+                        lw_exchange(
+                            &self.zone_rad,
+                            &rad_temps,
+                            pc.zi,
+                            self.surfaces[i].rad_index,
+                            t_old,
+                            t_zone,
+                        )
+                    };
                     self.surfaces[i].h_rad_inside = h_rad;
                     self.surfaces[i].q_rad_inside = h_rad * (t_mrt - self.surfaces[i].temp_inside);
 
@@ -5586,6 +5634,8 @@ mod tests {
                 exposed_perimeter: None,
                 adjacent_surface: None,
                 airflow: None,
+                inside_combined_coefficient: None,
+                outside_combined_coefficient: None,
                 height: None,
             },
             SurfaceInput {
@@ -5605,6 +5655,8 @@ mod tests {
                 exposed_perimeter: None,
                 adjacent_surface: None,
                 airflow: None,
+                inside_combined_coefficient: None,
+                outside_combined_coefficient: None,
                 height: None,
             },
             SurfaceInput {
@@ -5624,6 +5676,8 @@ mod tests {
                 exposed_perimeter: None,
                 adjacent_surface: None,
                 airflow: None,
+                inside_combined_coefficient: None,
+                outside_combined_coefficient: None,
                 height: None,
             },
             SurfaceInput {
@@ -5643,6 +5697,8 @@ mod tests {
                 exposed_perimeter: None,
                 adjacent_surface: None,
                 airflow: None,
+                inside_combined_coefficient: None,
+                outside_combined_coefficient: None,
                 height: None,
             },
         ];
@@ -5775,6 +5831,8 @@ mod tests {
             exposed_perimeter: None,
             adjacent_surface: None,
             airflow: None,
+            inside_combined_coefficient: None,
+            outside_combined_coefficient: None,
             height: None,
         };
         let doorway_override = doorway.then(|| crate::airflow_network::SurfaceAirflowOverride {
@@ -5803,6 +5861,8 @@ mod tests {
                 exposed_perimeter: None,
                 adjacent_surface: None,
                 airflow: doorway_override.clone(),
+                inside_combined_coefficient: None,
+                outside_combined_coefficient: None,
                 height: None,
             },
             SurfaceInput {
@@ -5822,6 +5882,8 @@ mod tests {
                 exposed_perimeter: None,
                 adjacent_surface: None,
                 airflow: doorway_override,
+                inside_combined_coefficient: None,
+                outside_combined_coefficient: None,
                 height: None,
             },
         ];
@@ -5843,6 +5905,8 @@ mod tests {
                 exposed_perimeter: None,
                 adjacent_surface: None,
                 airflow: None,
+                inside_combined_coefficient: None,
+                outside_combined_coefficient: None,
                 height: None,
             });
         }
@@ -6542,6 +6606,8 @@ mod tests {
                 exposed_perimeter: None,
                 adjacent_surface: None,
                 airflow: None,
+                inside_combined_coefficient: None,
+                outside_combined_coefficient: None,
                 height: None,
             },
             SurfaceInput {
@@ -6561,6 +6627,8 @@ mod tests {
                 exposed_perimeter: None,
                 adjacent_surface: None,
                 airflow: None,
+                inside_combined_coefficient: None,
+                outside_combined_coefficient: None,
                 height: None,
             },
         ];
@@ -7255,6 +7323,8 @@ mod tests {
             exposed_perimeter: None,
             adjacent_surface: None,
             airflow: None,
+            inside_combined_coefficient: None,
+            outside_combined_coefficient: None,
             height: None,
         };
         let envelope = make_simple_model_with(vec![door]);
@@ -7351,6 +7421,8 @@ mod tests {
                 exposed_perimeter: None,
                 adjacent_surface: None,
                 airflow: None,
+                inside_combined_coefficient: None,
+                outside_combined_coefficient: None,
                 height: None,
             },
             SurfaceInput {
@@ -7370,6 +7442,8 @@ mod tests {
                 exposed_perimeter: None,
                 adjacent_surface: None,
                 airflow: None,
+                inside_combined_coefficient: None,
+                outside_combined_coefficient: None,
                 height: None,
             },
         ];
@@ -7521,6 +7595,8 @@ mod tests {
                 exposed_perimeter: None,
                 adjacent_surface: None,
                 airflow: None,
+                inside_combined_coefficient: None,
+                outside_combined_coefficient: None,
                 height: None,
             },
             SurfaceInput {
@@ -7540,6 +7616,8 @@ mod tests {
                 exposed_perimeter: None,
                 adjacent_surface: None,
                 airflow: None,
+                inside_combined_coefficient: None,
+                outside_combined_coefficient: None,
                 height: None,
             },
         ];
@@ -7671,6 +7749,8 @@ mod tests {
             exposed_perimeter: None,
             adjacent_surface: None,
             airflow: None,
+            inside_combined_coefficient: None,
+            outside_combined_coefficient: None,
             height: None,
         }];
         let mut envelope = BuildingEnvelope::from_input(

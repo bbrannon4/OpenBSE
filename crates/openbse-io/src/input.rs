@@ -5809,6 +5809,34 @@ fn validate_daylighting(model: &ModelInput, result: &mut ValidationResult) {
     }
 }
 
+/// Constant combined surface coefficients: positive, and an outside one only
+/// on a face that sees the outdoors.
+fn validate_combined_coefficients(model: &ModelInput, result: &mut ValidationResult) {
+    for s in &model.surfaces {
+        for (side, h) in [
+            ("inside", s.inside_combined_coefficient),
+            ("outside", s.outside_combined_coefficient),
+        ] {
+            if let Some(h) = h {
+                if !(h.is_finite() && h > 0.0) {
+                    result.severe(format!(
+                        "Surface '{}': {side}_combined_coefficient must be positive, got {h}",
+                        s.name
+                    ));
+                }
+            }
+        }
+        if s.outside_combined_coefficient.is_some()
+            && !matches!(s.boundary, openbse_envelope::BoundaryCondition::Outdoor)
+        {
+            result.severe(format!(
+                "Surface '{}': outside_combined_coefficient applies only to an outdoor surface",
+                s.name
+            ));
+        }
+    }
+}
+
 fn validate_zone_multipliers(model: &ModelInput, result: &mut ValidationResult) {
     let multiplier = |name: &str| {
         model
@@ -6906,6 +6934,7 @@ pub fn validate_model(model: &ModelInput) -> ValidationResult {
 
     validate_materials(model, &mut result);
     validate_zone_multipliers(model, &mut result);
+    validate_combined_coefficients(model, &mut result);
     validate_dual_duct_loops(model, &mut result);
     validate_heat_recovery(model, &mut result);
     validate_recirculating_loops(model, &mut result);
@@ -7228,6 +7257,31 @@ air_loops:
              infiltration:\n- {{name: I, zones: [Room], flow_per_floor_area: 0.001}}\n"
         ))
         .unwrap()
+    }
+
+    /// A constant combined coefficient is positive, and an outside one needs
+    /// an outdoor face.
+    #[test]
+    fn combined_coefficients_are_validated() {
+        let ok = per_area_model(
+            "- {name: F, zone: Room, type: floor, construction: C, boundary: outdoor, \
+             inside_combined_coefficient: 3.7, outside_combined_coefficient: 5.2, \
+             vertices: [{x: 0, y: 0, z: 0}, {x: 0, y: 5, z: 0}, {x: 6, y: 5, z: 0}, {x: 6, y: 0, z: 0}]}\n",
+        );
+        let text = validate_model(&ok).to_err_file();
+        assert!(!text.contains("combined_coefficient"), "{text}");
+        let bad = per_area_model(
+            "- {name: F, zone: Room, type: floor, construction: C, boundary: adiabatic, \
+             inside_combined_coefficient: -1.0, outside_combined_coefficient: 5.2, \
+             vertices: [{x: 0, y: 0, z: 0}, {x: 0, y: 5, z: 0}, {x: 6, y: 5, z: 0}, {x: 6, y: 0, z: 0}]}\n",
+        );
+        let errors = validate_model(&bad).to_err_file();
+        for expected in [
+            "inside_combined_coefficient must be positive",
+            "outside_combined_coefficient applies only to an outdoor surface",
+        ] {
+            assert!(errors.contains(expected), "{expected}: {errors}");
+        }
     }
 
     /// Daylighting controls need an existing zone, reference points that

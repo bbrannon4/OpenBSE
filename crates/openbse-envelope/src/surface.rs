@@ -114,6 +114,20 @@ pub struct SurfaceInput {
     /// Only used when the airflow network is enabled in simulation settings.
     #[serde(default)]
     pub airflow: Option<crate::airflow_network::SurfaceAirflowOverride>,
+    /// Constant combined (convective plus long-wave) coefficient of the
+    /// inside face [W/(m²·K)], to the zone air temperature. When set, the
+    /// face's convection model is replaced by this value and the face takes
+    /// no part in the zone's long-wave exchange (radiant internal gains and
+    /// solar still land on it). ASHRAE 140 Cases 450 and 460 (Table 7-46).
+    #[serde(default)]
+    pub inside_combined_coefficient: Option<f64>,
+    /// Constant combined (convective plus long-wave) coefficient of the
+    /// outside face [W/(m²·K)], to the outdoor air temperature, for an
+    /// outdoor surface. When set, the face's convection model is replaced by
+    /// this value and the face exchanges no long-wave with the sky, air or
+    /// ground. ASHRAE 140 Cases 450 and 470 (Table 7-46).
+    #[serde(default)]
+    pub outside_combined_coefficient: Option<f64>,
 }
 
 fn default_true() -> bool {
@@ -814,6 +828,8 @@ mod tests {
             exposed_perimeter: None,
             height: None,
             airflow: None,
+            inside_combined_coefficient: None,
+            outside_combined_coefficient: None,
         }
     }
 

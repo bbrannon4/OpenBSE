@@ -67,6 +67,14 @@ AE_REHEAT_RANGES = _RANGES.get("ae_reheat_ranges", {})
 HE_GAS_HHV_J_PER_M3 = 38.0e6
 HE_RUN_SECONDS = 2160 * 3600
 
+# Section 7.2.3 in-depth cases: annual loads reported, never gated. Normative
+# Annex A3 gives no ranges for them, and the repo adds none of its own.
+INDEPTH_CASES = [
+    "195", "200", "210", "215", "220", "230", "240", "250", "270", "280", "290",
+    "300", "310", "320", "395", "400", "410", "420", "430", "440", "450", "460",
+    "470", "800", "810",
+]
+
 # Free-float temperature ranges: (max_lo, max_hi, min_lo, min_hi, mean_lo, mean_hi)
 FF_RANGES = {k: tuple(v) for k, v in _RANGES["free_float_temp_ranges_c"].items()}
 
@@ -446,6 +454,17 @@ def main():
                 fail_details.append(f"  Case {case} {metric}: OpenBSE={val}, "
                                     f"Range=[{lo}, {hi}], Delta={delta:.0f}")
 
+    # --- Section 7.2.3 in-depth cases: reported, not gated ---
+    for case in INDEPTH_CASES:
+        h_val, c_val = read_load_results(case)
+        if h_val is None or c_val is None:
+            missing.append(case)
+            continue
+        for metric, val in [("Annual Heating (kWh)", round(h_val)),
+                            ("Annual Cooling (kWh)", round(c_val))]:
+            rows.append([case, metric, val, "", "", "INFO", "", ""])
+            info_count += 1
+
     # --- Free-float temperature cases ---
     for case in sorted(FF_RANGES.keys()):
         max_lo, max_hi, min_lo, min_hi, mean_lo, mean_hi = FF_RANGES[case]
@@ -669,7 +688,8 @@ def main():
     print(f"Total checks:  {total}")
     print(f"PASS:          {pass_count}  ({100 * pass_count / total:.1f}%)")
     print(f"FAIL:          {fail_count}  ({100 * fail_count / total:.1f}%)")
-    print(f"INFO:          {info_count}  (reported, not gated; see ce_b_informative)")
+    print(f"INFO:          {info_count}  (reported, not gated: 7.2.3 in-depth loads, "
+          "ce_b_informative)")
     print("-" * 60)
     if missing:
         print(f"Missing cases: {', '.join(missing)}")

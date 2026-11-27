@@ -2095,7 +2095,9 @@
         "wind_exposure": { "type": "boolean", "default": true, "description": "Whether the exterior face sees wind-driven convection (false = natural convection only, E+ NoWind)." },
         "adjacent_surface": { "type": "string", "description": "Name of the opposite face of an interzone surface (E+ Outside Boundary Condition Object). Optional: surfaces are otherwise paired by coincident vertices, then by matching area and orientation. Anything that can't be paired one-to-one is a severe error." },
         "exposed_perimeter": { "type": "number", "description": "Exposed perimeter [m] for F-factor ground floors. Required when the construction is an f_factor_constructions entry; U_eff = F x P / A." },
-        "height": { "type": "number", "description": "Height of the surface along its slope [m]: the window height for the ISO 15099 interior convection model, and (times the sine of the tilt) a large opening's vertical extent in the airflow network (default from the vertices, or sqrt(area) without them)." }
+        "height": { "type": "number", "description": "Height of the surface along its slope [m]: the window height for the ISO 15099 interior convection model, and (times the sine of the tilt) a large opening's vertical extent in the airflow network (default from the vertices, or sqrt(area) without them)." },
+        "inside_combined_coefficient": { "type": "number", "exclusiveMinimum": 0, "description": "Constant combined (convective plus long-wave) coefficient of the inside face [W/(m2 K)], to the zone air temperature. Replaces the inside convection model; the face takes no part in the zone's long-wave exchange (radiant gains and solar still land on it). ASHRAE 140 Cases 450 and 460." },
+        "outside_combined_coefficient": { "type": "number", "exclusiveMinimum": 0, "description": "Constant combined (convective plus long-wave) coefficient of the outside face [W/(m2 K)], to the outdoor air temperature; outdoor surfaces only. Replaces the outside convection model and the face's long-wave exchange with sky, air and ground. ASHRAE 140 Cases 450 and 470." }
       }
     },
 

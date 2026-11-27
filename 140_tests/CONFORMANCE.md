@@ -8,14 +8,15 @@ Landing inside the acceptance ranges is a separate test (`README.md`). A case ca
 
 | Section | Cases | Deviations found | Fixed | Tracked (issue) | Equivalent / not modelled |
 |---|---|---|---|---|---|
-| General requirements (5.1.1, Annex A1) | all 96 | 1 | 1 | 0 | 1 |
+| General requirements (5.1.1, Annex A1) | all 121 | 1 | 1 | 0 | 1 |
 | 7 Building thermal envelope and fabric | 27 | 8 | 8 | 0 | 0 |
+| 7.2.3 In-depth (195–470, 800, 810) | 25 | 0 (new) | — | 0 | 0 |
 | 9.2.1–9.2.2 Space cooling, analytical (CE100–CE200) | 14 | 1 | 1 | 0 | 2 |
 | 9.2.3–9.2.4 Space cooling, comparative (CE300–CE545) | 20 | 2 | 2 | 0 | 1 |
 | 10 Space heating (HE100–HE230) | 11 | 6 | 6 | 0 | 0 |
 | 11 Air-side HVAC (AE101–AE445) | 24 | 2 | 2 | 0 | 2 |
 
-Machine checks: `conformance_spec.json` lists 2,523 specified values across the 96 cases with their clauses; `crates/openbse-io/tests/ashrae140_conformance.rs` parses each case with the engine's input parser and checks every value, and fails if a case has no entry. Each case's weather file is hash-pinned in `.github/workflows/ci.yml`. See [CI guards](#ci-guards).
+Machine checks: `conformance_spec.json` lists 4,442 specified values across the 121 cases with their clauses; `crates/openbse-io/tests/ashrae140_conformance.rs` parses each case with the engine's input parser and checks every value, and fails if a case has no entry. Each case's weather file is hash-pinned in `.github/workflows/ci.yml`. See [CI guards](#ci-guards).
 
 ### Fixes and issues from this audit
 
@@ -37,6 +38,7 @@ Machine checks: `conformance_spec.json` lists 2,523 specified values across the 
 | #523 | Outdoor humidity ratio from the dew point (was whole-percent RH) | 9, 10, 11 |
 | #535 | Section 10 envelope per Table 10-2 (was adiabatic surfaces) | 10 |
 | v0.8.0 | Output forms: Section 7 solar, sky-temperature and specific-day outputs (7.3.2–7.3.5, 7.3.8) and zero peaks entered as 0 (7.3.1.5); Section 11 two-zone RHcco (was 0) and outdoor-air states from the dew point; program version and dates from `Cargo.toml` and `CHANGELOG.md`; Section 10 CODENAME/COUNTRY in every block; modeling notes (Annex A2 item i) for each section | 7, 10, 11 (output) |
+| v0.8.0 | Section 7.2.3 in-depth cases added (25 cases, below); engine: constant combined surface coefficients for Cases 450–470, and a zone's volume from its parent surfaces only (an opaque subsurface no longer breaks the closed-shell test) | 7 |
 | #53 (existing) | `simple_constructions` layer guess tuned to 140 constructions; no 140 case uses it now | — |
 
 ## Method and citations
@@ -146,6 +148,54 @@ Each case is Case 600 plus the lines listed (7.2.2, Table B1-2 base cases).
 | 900FF | 900 | Temperature bins | 7.3.7 | 1 °C bins | template post-processor from hourly temperatures | conforming |
 
 Cases 640/940: the ramp is the clause c(1) input itself. A thermostat schedule entry with an end set point ramps linearly across its period and is read at the end of each time step (`ThermostatScheduleEntry::setpoints_at`).
+
+### Section 7.2.3 in-depth cases
+
+Cases 195–320, 395–470, 800 and 810 (7.2.3a). Each is written by `scripts/generate_indepth_cases.py`, which also writes its `conformance_spec.json` entry. Required output is 7.3.1 only (7.2.3b): annual heating and sensible cooling, and annual hourly integrated peaks with their time, entered in rows 91–115 of the TF form by `generate_ashrae140_submission.py`. Annex A3 has no ranges for these cases and the gate adds none: `build_140_csv.py` reports their loads as INFO rows and fails CI only when a case gives no result.
+
+The base cases are those of Informative Table 7-33, read clause by clause. Lines shared by the series come first; each case then lists its own.
+
+| # | Requirement | Clause | Specified | OpenBSE input | Status |
+|---|---|---|---|---|---|
+| ID-1 | High-conductance wall elements (HCWE): placement | 7.2.3.1.4.1, Table 7-35 | replace the 12 m² of south windows: two 3 × 2 m units | two opaque `wall` subsurfaces of the south wall (`parent_surface: South Wall`) at the Case 600 window vertices; their area comes off the wall | conforming |
+| ID-2 | HCWE layers | 7.2.3.1.4.2d, Table 7-36 | panel 3.048 mm (k 1.00, ρ 2470, cp 750) / air gap 12.0 mm (k 0.0625, ρ 1.292498, cp 1006.103271, constant) / panel | three massed layers with those values; engine material properties are constant | conforming (the accompanying EnergyPlus input uses a massless R 0.192 gap; the text gives the gap's density and specific heat, so they are input) |
+| ID-3 | HCWE surfaces | 7.2.3.1.4.2a–c | shortwave transmittance 0; Table 7-34 absorptances and emittances (as varied by the case); very smooth, as the glass | opaque construction; outer and inner panel carry the case's exterior and interior values; `roughness: very_smooth` | conforming |
+| ID-4 | HCWE surface coefficients | 7.2.3.1.4.3a, 7.2.3.1.4.4a | program calculates time-step convection and IR → apply them | DOE-2 outside convection (very smooth), TARP inside, explicit IR, as for the other walls | conforming |
+| ID-5 | No infiltration, no gains (220 series, 400) | 7.2.3.1.1–2, 7.2.3.15.1–2 | 0 ach; 0 W | no `infiltration`, no `equipment` | conforming |
+| ID-6 | Opaque radiative properties, Case 220 | 7.2.3.1.3, Table 7-34 | interior solar 0.6, exterior solar 0.1, IR 0.9 both faces; raised floor: interior solar and IR, exterior IR from the table, exterior gets no solar | outer layers α 0.1 / ε 0.9, inner layers α 0.6 / ε 0.9; floor insulation ε 0.9, `sun_exposure: false` (its exterior α stays Case 600's 0.6: no clause changes it and no solar reaches it; the accompanying input has 0.1) | conforming |
+| ID-7 | "20,20" thermostat (195–310) | 7.2.3.1.5 | heat < 20 °C, cool > 20 °C, nonproportional | 20 / 20 | conforming |
+| ID-8 | Interior solar distribution (270–320, 440, 810) | 7.2.3.9.3.1, 7.2.3.10.2.1, 7.2.3.12.2.1 | calculated by the program from the interior solar absorptance → skip Tables 7-43 to 7-45 | `full_interior_and_exterior` (beam projected, diffuse by area × absorptance, the windows' back transmittance losing solar to outdoors) | conforming |
+| ID-9 | Output | 7.2.3b, 7.3.1 | non-free-float output only | annual loads from the summary, peaks from hourly zone results | conforming |
+
+| Case | Builds on (Table 7-33) | Requirement | Clause | Specified | OpenBSE input | Status |
+|---|---|---|---|---|---|---|
+| 220 | 600, 685 | Base case | 7.2.3.1 | ID-1 to ID-7 | as specified | conforming |
+| 210 | 220 | Interior IR | 7.2.3.2.1 | interior ε 0.1 on all opaque surfaces, HCWE included | plasterboard, timber flooring, inner panel ε 0.1 | conforming |
+| 215 | 220 | Exterior IR | 7.2.3.3.1 | exterior ε 0.1 on all opaque surfaces, HCWE included | wood siding, roof deck, floor insulation, outer panel ε 0.1 | conforming |
+| 200 | 210, 215 | Interior and exterior IR | 7.2.3.4.1 | 210 plus exterior ε 0.1 | interior and exterior ε 0.1 | conforming |
+| 195 | 200, 600 | Solid conduction | 7.2.3.5 | HCWE replaced by the Table 7-2 wall, rough outside, smooth inside, Case 200 wall radiative properties | full Case 600 south wall, no subsurfaces; ε 0.1 both faces, α 0.1 out / 0.6 in | conforming |
+| 230 | 220 | Infiltration | 7.2.3.6, Table 7-42 | 1.0 ach constant; program corrects for altitude → 1.0 | 1.0 ach, mass flow at weather-file pressure | conforming |
+| 240 | 220 | Internal gains | 7.2.3.7 | 200 W, 100% sensible, 60% radiative | 200 W, radiant 0.6, latent 0 | conforming |
+| 250 | 220, 600 | Exterior solar absorptance | 7.2.3.8 | 0.9 on all opaque surfaces but the raised floor, HCWE included | wood siding, roof deck, outer panel α 0.9 | conforming |
+| 270 | 220, 600 | South windows | 7.2.3.9.1–2 | interior α 0.9; Case 600 windows in place of the HCWE | inner layers α 0.9; Case 600 window construction and vertices | conforming |
+| 280 | 270 | Cavity albedo | 7.2.3.10.1 | interior α 0.1 | inner layers α 0.1 | conforming |
+| 290 | 270, 610 | South overhang | 7.2.3.11 | Case 610 overhang across the whole south wall | `shading_surfaces` 0–8 m × 1.0 m at z 2.7 (as Case 610) | conforming |
+| 300 | 270, 620 | East/west windows | 7.2.3.12.1 | 6 m² east, 6 m² west, none south, as Case 620 | Case 620 vertices | conforming |
+| 310 | 300, 630 | East/west shading | 7.2.3.13 | Case 630 overhangs and fins | Case 630 window `shading` | conforming |
+| 320 | 270, 600 | "20,27" thermostat | 7.2.3.14 | heat < 20 °C, cool > 27 °C | 20 / 27 | conforming |
+| 400 | 600, 220 | Base of the "20,27" series | 7.2.3.15 | ID-1 to ID-5; exterior α 0.1 on all opaque surfaces but the raised floor, HCWE included; interior and IR as Case 600 | outer layers α 0.1; inner α 0.6; ε 0.9 | conforming |
+| 395 | 400, 195 | Solid conduction | 7.2.3.16 | HCWE replaced by the Table 7-2 wall, Case 400 wall properties | full Case 600 south wall; α 0.1 out / 0.6 in | conforming |
+| 410 | 400, 600 | Infiltration | 7.2.3.17 | 0.5 ach, altitude-corrected | 0.5 ach | conforming |
+| 420 | 410, 600 | Internal gains | 7.2.3.18 | 200 W, as Case 600 | 200 W, radiant 0.6 | conforming |
+| 430 | 420, 600 | Exterior solar absorptance | 7.2.3.19 | 0.6, HCWE included | outer layers α 0.6 | conforming |
+| 440 | 600, 280 | Cavity albedo | 7.2.3.20 | Case 600 with interior α 0.1; solar distribution as 280 (ID-8) | inner layers α 0.1 | conforming |
+| 450 | 600 | Constant combined coefficients, both faces | 7.2.3.21.1–2, Table 7-46 | interior / exterior: walls 1.8 / 21.6, roof 1.7 / 21.8, raised floor 3.7 / 5.2, windows 4.5 / 17.8 W/(m²·K); time-step varying coefficients prohibited | `inside_combined_coefficient` and `outside_combined_coefficient` on every surface with those values: each replaces that face's convection model and long-wave exchange (Engineering Reference, constant combined coefficients) | conforming (new engine input) |
+| 460 | 600, 450 | Constant combined coefficients, interior | 7.2.3.22.1 | Table 7-46 interior; exterior as Case 600 | `inside_combined_coefficient` only | conforming (new engine input) |
+| 470 | 600, 450 | Constant combined coefficients, exterior | 7.2.3.23.1 | Table 7-46 exterior; interior as Case 600 | `outside_combined_coefficient` only | conforming (new engine input) |
+| 800 | 430, 900 | High mass, no solar gains | 7.2.3.24 | Case 430 with the Table 7-27 wall and floor; roof and HCWE as Case 430 | Case 900 wall and floor layers; Case 600 roof; HCWE | conforming |
+| 810 | 900, 280 | High-mass cavity albedo | 7.2.3.25 | Case 900 with interior α 0.1; solar distribution as 280 (ID-8) | Case 900 layers, inner layers α 0.1 | conforming |
+
+Cases 450–470: the Standard's informative note permits entering Table 7-46 as convection coefficients with the emittances set as low as the program allows, which the accompanying EnergyPlus input does (ε 10⁻⁶). OpenBSE takes the combined coefficient itself, so no emittance is altered and the radiant gains still land on the surfaces by their emissivities, which keep their values. Annex A2 Block B of the Section 7 notes describes the option and where it is used.
 
 ## Section 9.2.1–9.2.2 — Space-cooling equipment, analytical verification (CE100–CE200)
 
@@ -309,7 +359,6 @@ Engine paths: single-zone and multizone air loops (`openbse-airloop`), electric 
 | Section / cases | Reason | Effect |
 |---|---|---|
 | 6 Weather drivers (WD100–WD600) | Not implemented in the suite | Solar and sky models are tested only through Section 7 results |
-| 7.2.3 In-depth cases 195–470, 800, 810 | Not in the suite (EnergyPlus inputs for most are in `reference_idfs/`) | Diagnostic cases; no Annex A3 ranges |
 | 8 Ground-coupled slab-on-grade (GC) | Not implemented | Ground model not tested by 140 |
 | 12 Class II tests | Not implemented | — |
 
@@ -325,11 +374,11 @@ Normative Annex A2 forms, in `results/`, generated from the case results by `scr
 | 10 | `OpenBSE_Std140_HE_Output.xls` | `OpenBSE_S140outNotes_10.txt` | Heating equipment |
 | 11 | `OpenBSE_Std140_AE_Output.xlsx` | `OpenBSE_S140outNotes_11.txt` | Air-side equipment |
 
-The notes' Block E lists the in-depth cases of 7.2.3 as omitted; the sections in [Cases and sections not run](#cases-and-sections-not-run) have no forms.
+The Section 7 notes omit no case (Block E: none); the in-depth results fill rows 91–115 of the TF form's conditioned-loads block. The sections in [Cases and sections not run](#cases-and-sections-not-run) have no forms.
 
 ## CI guards
 
-- **Specified inputs:** `crates/openbse-io/tests/ashrae140_conformance.rs` checks 2,523 values in `conformance_spec.json` against each parsed case (constructions and every material property, glazing, gains, infiltration, set points and schedules, capacities, fans, ventilation, weather file path, time step and solar-distribution method), and fails when a case has no entry.
+- **Specified inputs:** `crates/openbse-io/tests/ashrae140_conformance.rs` checks 4,442 values in `conformance_spec.json` against each parsed case (constructions and every material property, glazing, gains, infiltration, set points and schedules, capacities, fans, ventilation, weather file path, time step and solar-distribution method), and fails when a case has no entry.
 - **Weather:** `.github/workflows/ci.yml` pins the SHA-256 of every weather file the cases read, including the Section 7 file as rebuilt in CI.
 - **Acceptance ranges:** pinned separately (existing).
 

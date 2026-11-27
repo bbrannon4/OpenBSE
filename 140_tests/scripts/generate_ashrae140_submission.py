@@ -4,7 +4,8 @@ Generate ASHRAE 140-2023 Section 7 output report for IBPSA portal submission.
 
 Reads OpenBSE summary/hourly result files from 140_tests/ and populates the
 normative Std140_TF_Output.xlsx template with Section 7 (Thermal Fabric)
-results for all Low Mass (600-series) and High Mass (900-series) cases.
+results for the Low Mass (600-series), High Mass (900-series) and in-depth
+(7.2.3: 195-470, 800, 810) cases.
 
 Usage:
     python 140_tests/scripts/generate_ashrae140_submission.py \
@@ -31,11 +32,17 @@ MONTH_ABBR = {1: "Jan", 2: "Feb", 3: "Mar", 4: "Apr", 5: "May", 6: "Jun",
               7: "Jul", 8: "Aug", 9: "Sep", 10: "Oct", 11: "Nov", 12: "Dec"}
 MONTH_NUM = {v: k for k, v in MONTH_ABBR.items()}
 
-# Non-free-float cases OpenBSE implements
+# Non-free-float cases OpenBSE implements: the basic cases (7.2.1-7.2.2) and
+# the in-depth cases (7.2.3), whose required output is 7.3.1 only.
+INDEPTH_CASES = [
+    "195", "200", "210", "215", "220", "230", "240", "250", "270", "280", "290",
+    "300", "310", "320", "395", "400", "410", "420", "430", "440", "450", "460",
+    "470", "800", "810",
+]
 CONDITIONED_CASES = [
     "600", "610", "620", "630", "640", "650", "660", "670", "680", "685", "695",
     "900", "910", "920", "930", "940", "950", "960", "980", "985", "995",
-]
+] + INDEPTH_CASES
 
 # Free-float cases: (case_id, summary_key, zone_col_prefix)
 FREE_FLOAT_CASES = [
@@ -54,6 +61,8 @@ CONDITIONED_ROW = {
     "660": 76, "670": 77, "680": 78, "685": 79, "695": 80,
     "900": 81, "910": 82, "920": 83, "930": 84, "940": 85, "950": 86,
     "960": 87, "980": 88, "985": 89, "995": 90,
+    # In-depth cases, rows 91-115 in template order
+    **{case: 91 + i for i, case in enumerate(INDEPTH_CASES)},
 }
 
 # Template row numbers for free-float zone temperature data (sheet A)
@@ -442,6 +451,8 @@ def main():
             continue
         s.update(annual_hourly_peaks(zone_csv))
         row = CONDITIONED_ROW[case]
+        if str(ws_a[f"B{row}"].value) != case:
+            sys.exit(f"template row {row} is case {ws_a[f'B{row}'].value}, not {case}")
 
         heat_mwh = round(s.get("heating_kwh", 0.0) / 1000.0, 3)
         cool_mwh = round(s.get("cooling_kwh", 0.0) / 1000.0, 3)

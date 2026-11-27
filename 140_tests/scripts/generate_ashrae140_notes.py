@@ -170,19 +170,28 @@ SECTIONS = {
                 ("Setting or Capability Used:", "doe2 in every Section 7 case."),
             ]),
             timestep_note(3, "4 time steps per hour in every Section 7 case."),
+            note(4, "Surface heat transfer coefficients", [
+                ("Describe the Effect Being Simulated:",
+                 "Convective and long-wave heat transfer at interior and exterior\n"
+                 "surfaces."),
+                ("Optional Settings or Modeling Capabilities\n"
+                 "    (list setting or capability and its physical meaning):",
+                 "Calculated (default): convection coefficients varying with each time\n"
+                 "    step, and long-wave exchange with the sky, air and ground outside\n"
+                 "    and among the zone surfaces inside.\n"
+                 "inside_combined_coefficient / outside_combined_coefficient: a constant\n"
+                 "    combined (convective plus long-wave) coefficient for a face, to the\n"
+                 "    adjacent air temperature, replacing both."),
+                ("Setting or Capability Used:",
+                 "Calculated in every Section 7 case except Cases 450, 460 and 470, which\n"
+                 "use the Table 7-46 combined coefficients as 7.2.3.21-7.2.3.23 require:\n"
+                 "interior and exterior in Case 450, interior only in Case 460, exterior\n"
+                 "only in Case 470."),
+            ]),
         ),
         "C": NONE,
         "D": NONE,
-        "E": notes(
-            note(1, "In-depth cases not run", [
-                ("List the Case(s) where Results Were Omitted, and which Results Were Omitted\n"
-                 "    for the Case(s):",
-                 "Section 7.2.3 in-depth cases 195 through 470, 800 and 810: all results."),
-                ("Explanation for Omitting the Test Case(s) Results:",
-                 "Not yet implemented in the program's test suite. These cases have no\n"
-                 "acceptance ranges in Normative Annex A3."),
-            ]),
-        ),
+        "E": NONE,
         "F": NO_SOURCE_CHANGES,
         "G": NONE,
     },

@@ -3,13 +3,14 @@
 **Standard:** ASHRAE Standard 140-2023 — Section 7 (thermal fabric), Section 9 (cooling equipment), Section 10 (heating equipment) and Section 11 (air-side equipment)
 **Weather:** each case reads the Standard's normative weather file, converted field for field: Section 7 the 725650TY.CSV (Denver, CO, 1650 m; licensed, rebuilt in CI from `weather/725650TYCST.epw`), Section 9 `cases/CE*.csv` from the CExxx TMY2 files, Section 10 `weather/HE*W.csv` from the WYEC2 files and Section 11 `weather/AE10x.csv` from the TMY2 files. CI pins each file's hash.
 
-**Conformance:** [`CONFORMANCE.md`](CONFORMANCE.md) checks every case against each requirement of the Standard. `conformance_spec.json` holds the specified values (2,523 across the 96 cases) and `crates/openbse-io/tests/ashrae140_conformance.rs` checks them against the parsed cases.
+**Conformance:** [`CONFORMANCE.md`](CONFORMANCE.md) checks every case against each requirement of the Standard. `conformance_spec.json` holds the specified values (4,442 across the 121 cases) and `crates/openbse-io/tests/ashrae140_conformance.rs` checks them against the parsed cases.
 
 ## Current Status: 529/529 gated checks pass, 21 reported
 
 | Section | Cases | Checks passing |
 |---|---|---|
 | 7 — Thermal fabric (600 and 900 series) | 27 | 63/63 |
+| 7 — Thermal fabric, in-depth (195–470, 800, 810) | 25 | 50 reported |
 | 9A — Cooling equipment, analytical (CE100–CE200) | 14 | 112/112 |
 | 9B — Cooling equipment, dynamic (CE300–CE545) | 20 | 210/210, plus 21 reported |
 | 10 — Heating equipment (HE100–HE230) | 11 | 48/48 |
@@ -21,6 +22,7 @@ Section 7 in detail:
 - **900 series (high-mass):** 20/20 pass
 - **Free-float temperatures:** 18/18 pass (all 6 cases)
 - **960 Sun Zone temperatures:** 3/3 pass
+- **In-depth cases (7.2.3):** annual heating and cooling of all 25 cases reported, not gated. Normative Annex A3 gives no ranges for them and the gate adds none; the TF form carries their 7.3.1 outputs.
 
 All 529 gated checks pass; `KNOWN_FAILURES` in `scripts/build_140_csv.py` is empty. In CE530–CE545, the dry-coil cases, the energy, COP and humidity results are reported but not gated (`ce_b_informative` in `acceptance_ranges_140_2023.json`). With no infiltration (Section 9.2.3.5) and no moisture source, the zone keeps its start humidity all year. The Standard specifies no start state for Class I, so these results depend on each program's initialisation, and the example results the ranges come from used other start states. The coil loads and zone temperatures of these cases stay gated.
 
@@ -66,12 +68,12 @@ python3 140_tests/scripts/build_140_csv.py
 ## Directory Structure
 
 ```
-cases/              96 YAML input files (ashrae140_case*.yaml), plus two scratch variants
+cases/              121 YAML input files (ashrae140_case*.yaml), plus two scratch variants
 weather/            Normative weather for Sections 10 and 11 (converted) and the Section 7 source EPW
 reference_idfs/     EnergyPlus IDF files for cross-reference
 scripts/            Case generators, the gate, and submission generators
   build_140_csv.py    Reads the case outputs and compares them against the gate ranges
-  generate_*_cases.py Write the case YAMLs for Sections 9A, 9B, 10 and 11
+  generate_*_cases.py Write the case YAMLs for the Section 7 in-depth cases and Sections 9A, 9B, 10 and 11
   generate_ashrae140_*submission.py  Fill the standard's output spreadsheets
   generate_ashrae140_notes.py        Write the modeling notes (S140outNotes) for each section
   solar_validation.py Solar calculation chain validation
